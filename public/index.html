@@ -139,13 +139,22 @@
     let me = null;
     let current = {type:"global"};
 
-    // helpers
-    async function api(path, method="GET", body){
-      const opts = {method, headers:{}};
-      if (body){ opts.headers["Content-Type"]="application/json"; opts.body=JSON.stringify(body); }
-      const res = await fetch("/api"+path, opts);
-      return res.json();
-    }
+   async function api(path, method = "GET", body) {
+  const opts = {
+    method,
+    headers: {},
+    credentials: "include"   // 🔥 NECESARIO PARA QUE FUNCIONE LOGIN Y TODO
+  };
+
+  if (body) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+
+  const res = await fetch("/api" + path, opts);
+  return res.json();
+}
+
 
     // UI refs
     const contactsList = document.getElementById("contacts-list");
