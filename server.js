@@ -1,6 +1,4 @@
-// server.js
-// Chat Nodo — servidor completo (JSON files, sockets, presencia, perfiles, unread, friend requests)
-
+// server.js (PEGA TODO ESTO)
 const express = require("express");
 const path = require("path");
 const http = require("http");
@@ -13,73 +11,75 @@ const fs = require("fs");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { /* defaults */ });
+const io = new Server(server);
 
 const PORT = process.env.PORT || 8080;
-const DATA_DIR = path.join(__dirname, "data");
 
-// ensure data dir
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+// ---------- JSON DATABASE (NO SQLITE) ----------
+const dataDir = path.join(__dirname, "data");
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
-// file paths
-const usersFile = path.join(DATA_DIR, "users.json");
-const messagesFile = path.join(DATA_DIR, "messages.json"); // global chat
-const privateMessagesFile = path.join(DATA_DIR, "private_messages.json");
-const groupsFile = path.join(DATA_DIR, "groups.json");
-const groupMessagesFile = path.join(DATA_DIR, "group_messages.json");
-const friendRequestsFile = path.join(DATA_DIR, "friend_requests.json");
+const usersFile = path.join(dataDir, "users.json");
+const messagesFile = path.join(dataDir, "messages.json");
+const privateMessagesFile = path.join(dataDir, "private_messages.json");
+const groupsFile = path.join(dataDir, "groups.json");
+const groupMessagesFile = path.join(dataDir, "group_messages.json");
 
-// helper to create file
 function ensureFile(file, defaultContent) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(defaultContent, null, 2));
+  if (!fs.existsSync(file)) {
+    fs.writeFileSync(file, JSON.stringify(defaultContent, null, 2));
+  }
 }
+
 ensureFile(usersFile, []);
 ensureFile(messagesFile, []);
 ensureFile(privateMessagesFile, []);
 ensureFile(groupsFile, []);
 ensureFile(groupMessagesFile, []);
-ensureFile(friendRequestsFile, []);
 
-// read/write helpers
 function load(file) {
-  try { return JSON.parse(fs.readFileSync(file)); }
-  catch(e){ return []; }
+  return JSON.parse(fs.readFileSync(file));
 }
 function save(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-// middleware
+// ---------- MIDDLEWARE ----------
 app.use(express.static(path.join(__dirname, "public")));
-app.use(bodyParser.json({limit: '2mb'})); // allow base64 avatars
+app.use(bodyParser.json({ limit: "5mb" })); // limit increased so DataURL avatars work
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.set("trust proxy", 1);
 
-app.use(session({
-  secret: process.env.SESSION_SECRET || "secret123",
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production", // Render sets NODE_ENV=production and handles https
-    sameSite: "lax",
-    maxAge: 1000 * 60 * 60 * 24 * 7
-  }
-}));
+// Session settings that work on local + Render (avoid secure:true when testing on HTTP)
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "secret123",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // if you use HTTPS set NODE_ENV=production
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
+    },
+  })
+);
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
-  res.status(401).json({ error: "Unauthorized" });
+  return res.status(401).json({ error: "Unauthorized" });
 }
 
 // ---------- AUTH ----------
 app.post("/api/register", async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
+  const { username, password } = req.body;
+  if (!username || !password)
+    return res.status(400).json({ error: "Missing username or password" });
 
-  const users = load(usersFile);
-  if (users.find(u => u.username === username)) return res.status(400).json({ error: "Username already exists" });
+  let users = load(usersFile);
+  if (users.find((u) => u.username === username)) {
+    return res.status(400).json({ error: "Username already exists" });
+  }
 
   const hash = await bcrypt.hash(password, 10);
   const user = {
@@ -88,11 +88,9 @@ app.post("/api/register", async (req, res) => {
     password_hash: hash,
     contacts: [],
     online: false,
-    avatar: null,        // Data URL or null
+    avatar: null, // dataURL string or null
     description: "",
-    sockets: 0           // in-file counter (kept for reference)
   };
-
   users.push(user);
   save(usersFile, users);
 
@@ -101,11 +99,12 @@ app.post("/api/register", async (req, res) => {
 });
 
 app.post("/api/login", async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
+  const { username, password } = req.body;
+  if (!username || !password)
+    return res.status(400).json({ error: "Missing username or password" });
 
   const users = load(usersFile);
-  const user = users.find(u => u.username === username);
+  const user = users.find((u) => u.username === username);
   if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
   const ok = await bcrypt.compare(password, user.password_hash);
@@ -116,175 +115,125 @@ app.post("/api/login", async (req, res) => {
 });
 
 app.post("/api/logout", requireAuth, (req, res) => {
-  // on logout, we don't change persistent online flag here (socket disconnect will handle)
   req.session.destroy(() => res.json({ ok: true }));
 });
 
 app.get("/api/me", (req, res) => {
-  const u = req.session.user || null;
+  if (!req.session || !req.session.user) return res.json({ user: null });
+  const users = load(usersFile);
+  const u = users.find((x) => x.id === req.session.user.id);
   if (!u) return res.json({ user: null });
-  // return profile data from disk
-  const users = load(usersFile);
-  const user = users.find(x => x.id === u.id);
-  if (!user) return res.json({ user: null });
-  const publicUser = {
-    id: user.id, username: user.username,
-    avatar: user.avatar || null,
-    description: user.description || "",
-    online: !!user.online
-  };
-  res.json({ user: publicUser });
+  const { password_hash, ...safe } = u;
+  res.json({ user: safe });
 });
 
-// update profile: description, avatar (base64 data URL), display name optional
+// ---------- PROFILE: avatar & description ----------
 app.post("/api/me/profile", requireAuth, (req, res) => {
-  const { description, avatar } = req.body || {};
-  const users = load(usersFile);
-  const user = users.find(x => x.id === req.session.user.id);
-  if (!user) return res.status(400).json({ error: "User not found" });
+  // Expects { avatar: "<dataURL>" } and/or { description: "..." }
+  const { avatar, description } = req.body;
+  let users = load(usersFile);
+  const u = users.find((x) => x.id === req.session.user.id);
+  if (!u) return res.status(404).json({ error: "User not found" });
 
-  if (typeof description === "string") user.description = description;
-  // avatar can be null to clear, or a data URL string (validate basic)
-  if (avatar === null) user.avatar = null;
-  else if (typeof avatar === "string" && avatar.startsWith("data:")) user.avatar = avatar;
-
+  if (avatar) {
+    // For simplicity we just store DataURL directly in JSON (fine for small images / demo)
+    u.avatar = avatar;
+  }
+  if (description !== undefined) {
+    u.description = description;
+  }
   save(usersFile, users);
-  res.json({ ok: true, avatar: user.avatar, description: user.description });
-});
-
-// ---------- FRIEND REQUESTS ----------
-app.post("/api/friend/request", requireAuth, (req, res) => {
-  const { to } = req.body || {};
-  if (!to) return res.status(400).json({ error: "Missing 'to' username" });
-
-  const users = load(usersFile);
-  const target = users.find(u => u.username === to);
-  const me = users.find(u => u.id === req.session.user.id);
-  if (!target) return res.status(400).json({ error: "User not found" });
-  if (me.id === target.id) return res.status(400).json({ error: "Cannot add yourself" });
-  if (me.contacts.includes(target.id)) return res.status(400).json({ error: "Already contact" });
-
-  const requests = load(friendRequestsFile);
-  const exist = requests.find(r => r.from === me.id && r.to === target.id);
-  if (exist) return res.status(400).json({ error: "Request already sent" });
-
-  requests.push({ id: Date.now(), from: me.id, to: target.id, created_at: new Date().toISOString() });
-  save(friendRequestsFile, requests);
-
-  // notify via socket
-  io.emit("friend_request", { fromId: me.id, fromName: me.username, toId: target.id });
-  res.json({ ok: true });
-});
-
-app.get("/api/friend/requests", requireAuth, (req, res) => {
-  const meId = req.session.user.id;
-  const requests = load(friendRequestsFile).filter(r => r.to === meId);
-  // attach sender name
-  const users = load(usersFile);
-  const detailed = requests.map(r => {
-    const from = users.find(u => u.id === r.from);
-    return { id: r.id, from: r.from, fromName: from ? from.username : "User" , created_at: r.created_at };
-  });
-  res.json(detailed);
-});
-
-app.post("/api/friend/accept", requireAuth, (req, res) => {
-  const { requestId } = req.body || {};
-  if (!requestId) return res.status(400).json({ error: "Missing requestId" });
-
-  let requests = load(friendRequestsFile);
-  const rIdx = requests.findIndex(r => r.id === requestId && r.to === req.session.user.id);
-  if (rIdx === -1) return res.status(400).json({ error: "Request not found" });
-
-  const reqObj = requests[rIdx];
-  requests.splice(rIdx,1);
-  save(friendRequestsFile, requests);
-
-  // add to contacts both sides
-  const users = load(usersFile);
-  const a = users.find(u => u.id === reqObj.from);
-  const b = users.find(u => u.id === reqObj.to);
-  if (a && !a.contacts.includes(b.id)) a.contacts.push(b.id);
-  if (b && !b.contacts.includes(a.id)) b.contacts.push(a.id);
-  save(usersFile, users);
-
-  // notify
-  io.emit("friend_accepted", { from: reqObj.from, to: reqObj.to });
-  res.json({ ok: true });
+  const { password_hash, ...safe } = u;
+  res.json({ ok: true, user: safe });
 });
 
 // ---------- CONTACTS ----------
 app.post("/api/add-contact", requireAuth, (req, res) => {
-  const { username } = req.body || {};
+  const { username } = req.body;
   if (!username) return res.status(400).json({ error: "Missing username" });
 
-  const users = load(usersFile);
-  const me = users.find(u => u.id === req.session.user.id);
-  const other = users.find(u => u.username === username);
+  let users = load(usersFile);
+  let me = users.find((u) => u.id === req.session.user.id);
+  let other = users.find((u) => u.username === username);
+
   if (!other) return res.status(400).json({ error: "No existe ese usuario" });
-  if (me.contacts.includes(other.id)) return res.status(400).json({ error: "Ya es tu contacto" });
+  if (me.contacts.includes(other.id))
+    return res.status(400).json({ error: "Ya es tu contacto" });
 
   me.contacts.push(other.id);
   save(usersFile, users);
-  res.json({ ok: true });
+
+  res.json({ ok: true, contact: { id: other.id, username: other.username } });
 });
 
 app.get("/api/contacts", requireAuth, (req, res) => {
-  const users = load(usersFile);
-  const me = users.find(u => u.id === req.session.user.id);
-  if (!me) return res.status(400).json([]);
+  let users = load(usersFile);
+  let me = users.find((u) => u.id === req.session.user.id);
+  if (!me) return res.status(404).json({ error: "User not found" });
 
-  const contacts = users.filter(u => me.contacts.includes(u.id)).map(u => ({
-    id: u.id, username: u.username, online: !!u.online, avatar: u.avatar || null, description: u.description || ""
-  }));
+  let contacts = users
+    .filter((u) => me.contacts.includes(u.id))
+    .map((u) => ({
+      id: u.id,
+      username: u.username,
+      online: !!u.online,
+      avatar: u.avatar || null,
+      description: u.description || "",
+    }));
+
   res.json(contacts);
 });
 
-// ---------- GLOBAL CHAT ----------
+// ---------- CHAT GLOBAL ----------
 app.get("/api/messages", (req, res) => {
   const msgs = load(messagesFile);
-  res.json(msgs.slice(-200));
+  res.json(msgs.slice(-100));
 });
 
 app.post("/api/messages", requireAuth, (req, res) => {
-  const text = (req.body && req.body.text) || "";
+  const text = req.body.text;
   if (!text) return res.status(400).json({ error: "Missing text" });
 
   const user = req.session.user;
-  const msgs = load(messagesFile);
+  let msgs = load(messagesFile);
+
   const msg = {
     id: Date.now(),
     user_id: user.id,
     username: user.username,
     text,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
   };
+
   msgs.push(msg);
   save(messagesFile, msgs);
+
   io.emit("message", msg);
   res.json(msg);
 });
 
-// ---------- PRIVATE MESSAGES (with read_by) ----------
+// ---------- CHATS PRIVADOS ----------
 app.post("/api/private/send", requireAuth, (req, res) => {
-  const { to, text } = req.body || {};
-  if (!to || !text) return res.status(400).json({ error: "Missing to/text" });
+  const { to, text } = req.body;
+  if (!to || !text) return res.status(400).json({ error: "Missing to or text" });
 
-  const msgs = load(privateMessagesFile);
+  let msgs = load(privateMessagesFile);
+
   const msg = {
     id: Date.now(),
     from: req.session.user.id,
     to: parseInt(to),
     text,
     created_at: new Date().toISOString(),
-    read_by: [ req.session.user.id ] // sender has "read"
   };
+
   msgs.push(msg);
   save(privateMessagesFile, msgs);
 
-  // emit to both users' rooms
+  // Emit to both rooms (pm-a-b and pm-b-a)
   io.to(`pm-${msg.from}-${msg.to}`).emit("private_message", msg);
   io.to(`pm-${msg.to}-${msg.from}`).emit("private_message", msg);
+
   res.json(msg);
 });
 
@@ -292,63 +241,28 @@ app.get("/api/private/:withId", requireAuth, (req, res) => {
   const withId = parseInt(req.params.withId);
   let msgs = load(privateMessagesFile);
 
-  const filtered = msgs.filter(m =>
-    (m.from === req.session.user.id && m.to === withId) ||
-    (m.from === withId && m.to === req.session.user.id)
+  let filtered = msgs.filter(
+    (m) =>
+      (m.from === req.session.user.id && m.to === withId) ||
+      (m.from === withId && m.to === req.session.user.id)
   );
-
-  // mark unread -> read for current user
-  let changed = false;
-  filtered.forEach(m => {
-    if (!m.read_by) m.read_by = [];
-    if (!m.read_by.includes(req.session.user.id)) {
-      m.read_by.push(req.session.user.id);
-      changed = true;
-    }
-  });
-  if (changed) {
-    // persist changes
-    const all = load(privateMessagesFile);
-    // merge back (simple replace by id)
-    filtered.forEach(f => {
-      const idx = all.findIndex(x => x.id === f.id);
-      if (idx !== -1) all[idx] = f;
-    });
-    save(privateMessagesFile, all);
-  }
 
   res.json(filtered);
 });
 
-app.post("/api/private/mark-read", requireAuth, (req, res) => {
-  const { withId } = req.body || {};
-  if (!withId) return res.status(400).json({ error: "Missing withId" });
-  const myId = req.session.user.id;
-
-  let msgs = load(privateMessagesFile);
-  let changed = false;
-  msgs.forEach(m => {
-    if ((m.from === parseInt(withId) && m.to === myId) || (m.from === myId && m.to === parseInt(withId))) {
-      if (!m.read_by) m.read_by = [];
-      if (!m.read_by.includes(myId)) { m.read_by.push(myId); changed = true; }
-    }
-  });
-  if (changed) save(privateMessagesFile, msgs);
-  res.json({ ok: true });
-});
-
-// ---------- GROUPS ----------
+// ---------- GRUPOS ----------
 app.post("/api/groups/create", requireAuth, (req, res) => {
-  const { name, members } = req.body || {};
-  if (!name) return res.status(400).json({ error: "Missing group name" });
+  const { name, members } = req.body;
+  if (!name) return res.status(400).json({ error: "Name required" });
 
-  const groups = load(groupsFile);
+  let groups = load(groupsFile);
+
   const group = {
     id: Date.now(),
     name,
     members: Array.isArray(members) ? members.map(Number) : [],
-    created_by: req.session.user.id
   };
+
   // ensure creator is in members
   if (!group.members.includes(req.session.user.id)) group.members.push(req.session.user.id);
 
@@ -358,136 +272,71 @@ app.post("/api/groups/create", requireAuth, (req, res) => {
   res.json(group);
 });
 
-// add member to group
-app.post("/api/groups/add-member", requireAuth, (req, res) => {
-  const { group_id, username } = req.body || {};
-  if (!group_id || !username) return res.status(400).json({ error: "Missing group_id/username" });
-
-  const groups = load(groupsFile);
-  const users = load(usersFile);
-  const g = groups.find(x => x.id === parseInt(group_id));
-  if (!g) return res.status(400).json({ error: "Group not found" });
-
-  // ensure requester is member of group
-  if (!g.members.includes(req.session.user.id)) return res.status(403).json({ error: "Not a member" });
-
-  const u = users.find(x => x.username === username);
-  if (!u) return res.status(400).json({ error: "User not found" });
-  if (!g.members.includes(u.id)) g.members.push(u.id);
-
-  save(groupsFile, groups);
-  io.to(`group-${g.id}`).emit("group_member_added", { group_id: g.id, user: { id: u.id, username: u.username } });
-  res.json({ ok: true, group: g });
-});
-
 app.get("/api/groups", requireAuth, (req, res) => {
-  const groups = load(groupsFile);
+  let groups = load(groupsFile);
   const uid = req.session.user.id;
-  const my = groups.filter(g => g.members.includes(uid));
-  res.json(my);
+
+  const myGroups = groups.filter((g) => g.members.includes(uid));
+
+  res.json(myGroups);
 });
 
 app.post("/api/groups/send", requireAuth, (req, res) => {
-  const { group_id, text } = req.body || {};
-  if (!group_id || !text) return res.status(400).json({ error: "Missing group_id/text" });
+  const { group_id, text } = req.body;
+  if (!group_id || !text) return res.status(400).json({ error: "Missing group_id or text" });
 
-  const msgs = load(groupMessagesFile);
+  let msgs = load(groupMessagesFile);
+
   const msg = {
     id: Date.now(),
-    group_id: parseInt(group_id),
+    group_id,
     from: req.session.user.id,
     text,
     created_at: new Date().toISOString(),
-    read_by: [ req.session.user.id ]
   };
+
   msgs.push(msg);
   save(groupMessagesFile, msgs);
 
   io.to(`group-${group_id}`).emit("group_message", msg);
+
   res.json(msg);
 });
 
 app.get("/api/groups/messages/:id", requireAuth, (req, res) => {
   const gid = parseInt(req.params.id);
   let msgs = load(groupMessagesFile);
-  const filtered = msgs.filter(m => m.group_id === gid);
-  // mark read_by for current user
-  let changed = false;
-  filtered.forEach(m => {
-    if (!m.read_by) m.read_by = [];
-    if (!m.read_by.includes(req.session.user.id)) { m.read_by.push(req.session.user.id); changed = true; }
-  });
-  if (changed) {
-    // merge back
-    const all = load(groupMessagesFile);
-    filtered.forEach(f => {
-      const idx = all.findIndex(x => x.id === f.id);
-      if (idx !== -1) all[idx] = f;
-    });
-    save(groupMessagesFile, all);
-  }
-  res.json(filtered);
+
+  res.json(msgs.filter((m) => m.group_id === gid));
 });
 
-// ---------- UNREAD COUNTS ----------
-app.get("/api/unread", requireAuth, (req, res) => {
-  const myId = req.session.user.id;
-  const priv = load(privateMessagesFile);
-  const groups = load(groupMessagesFile);
-  const users = load(usersFile);
-
-  // global unread not tracked (public chat visible to all) -> 0
-  const privateCounts = {};
-  priv.forEach(m => {
-    const other = (m.from === myId) ? m.to : m.from;
-    if (!privateCounts[other]) privateCounts[other] = 0;
-    if (!m.read_by || !m.read_by.includes(myId)) {
-      // only count messages that are "to" me or from other to me
-      if (m.to === myId && !m.read_by.includes(myId)) privateCounts[other] += 1;
-    }
-  });
-
-  const groupCounts = {};
-  groups.forEach(m => {
-    const gid = m.group_id;
-    if (!groupCounts[gid]) groupCounts[gid] = 0;
-    if (!m.read_by || !m.read_by.includes(myId)) {
-      // only count if user is member (we'll rely on frontend)
-      groupCounts[gid] += 1;
-    }
-  });
-
-  res.json({ global: 0, private: privateCounts, groups: groupCounts });
-});
-
-// ---------- SOCKET.IO presence & rooms ----------
+// ---------- SOCKET.IO — PRESENCIA ----------
 /*
-  Socket behavior:
-    - client emits 'online' with userId when logged in
-    - server keeps maps of socketId -> userId and userId -> count
-    - on disconnect decrements count and set user offline if zero
+ We'll maintain a map socketId -> userId so on disconnect we can mark offline.
 */
-const socketToUser = new Map();      // socketId -> userId
-const userSocketCount = new Map();   // userId -> number
+const socketUser = new Map(); // socket.id => userId
 
 io.on("connection", (socket) => {
-  // console.log("socket connected", socket.id);
+  // client emits 'online' after login with userId
   socket.on("online", (userId) => {
-    if (!userId) return;
-    socketToUser.set(socket.id, userId);
-    const prev = userSocketCount.get(userId) || 0;
-    userSocketCount.set(userId, prev + 1);
-
-    // persistent mark online true
-    const users = load(usersFile);
-    const u = users.find(x => x.id === userId);
-    if (u) { u.online = true; save(usersFile, users); }
-
-    io.emit("presence_update", { id: userId, online: true });
+    try {
+      userId = Number(userId);
+      // store mapping
+      socketUser.set(socket.id, userId);
+      // mark user online
+      let users = load(usersFile);
+      const u = users.find((x) => x.id === userId);
+      if (u) {
+        u.online = true;
+        save(usersFile, users);
+      }
+      io.emit("presence_update", { id: userId, online: true });
+    } catch (e) {
+      console.error("online handler error", e);
+    }
   });
 
   socket.on("join_private", ({ me, other }) => {
-    // join both permutations (so both can be reached)
     socket.join(`pm-${me}-${other}`);
     socket.join(`pm-${other}-${me}`);
   });
@@ -497,30 +346,31 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    const userId = socketToUser.get(socket.id);
-    socketToUser.delete(socket.id);
-    if (userId) {
-      const prev = userSocketCount.get(userId) || 1;
-      const next = Math.max(0, prev - 1);
-      userSocketCount.set(userId, next);
-
-      if (next === 0) {
-        // mark offline persistently
-        const users = load(usersFile);
-        const u = users.find(x => x.id === userId);
-        if (u) { u.online = false; save(usersFile, users); }
-        io.emit("presence_update", { id: userId, online: false });
+    // mark user offline if we know it
+    const uid = socketUser.get(socket.id);
+    if (uid) {
+      socketUser.delete(socket.id);
+      // Check if any other socket still belongs to uid (user may have multiple tabs)
+      const stillConnected = Array.from(socketUser.values()).some((v) => v === uid);
+      if (!stillConnected) {
+        let users = load(usersFile);
+        const u = users.find((x) => x.id === uid);
+        if (u) {
+          u.online = false;
+          save(usersFile, users);
+        }
+        io.emit("presence_update", { id: uid, online: false });
       }
     }
   });
 });
 
-// SPA support (serve index for any non-api routes)
+// ---------- SPA support ----------
 app.get(/^\/(?!api).*/, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// start
+// ---------- START ----------
 server.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
