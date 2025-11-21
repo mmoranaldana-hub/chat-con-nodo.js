@@ -7,10 +7,10 @@
   <style>
     :root{
       --bg: #e9edef; --panel: #fff; --accent:#25D366; --muted:#8a9398; --me:#DCF8C6; --them:#ffffff; --header:#075E54; --text:#111827;
-      --dark-bg: #0b1220; --dark-panel:#0f1720; --dark-text:#e6eef3;
+      --dark-bg: #0f1720; --dark-panel:#111827; --dark-text:#e6eef3;
     }
     *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif}
-    html,body,#root{height:100%}
+    html,body,#root{height:100%;}
     body{height:100vh;background:var(--bg);color:var(--text)}
 
     /* App layout */
@@ -31,7 +31,7 @@
     .small{font-size:12px;color:var(--muted)}
 
     .tools{display:flex;gap:8px;padding:10px;border-bottom:1px solid #f0f0f0}
-    .list{overflow:auto;padding:8px;flex:1;min-height:0}
+    .list{overflow:auto;padding:8px;flex:1;min-height:0} /* min-height:0 so it can scroll */
     .item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
     .item:hover{background:#f4f7f6}
     .item .meta{flex:1}
@@ -50,17 +50,9 @@
     .composer input{flex:1;padding:10px;border-radius:20px;border:1px solid #e6e6e6}
     .btn{background:var(--header);color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer}
 
-    /* DARK MODE - full fix */
+    /* dark mode */
     body.dark{background:var(--dark-bg);color:var(--dark-text)}
     body.dark .panel{background:var(--dark-panel)}
-    body.dark .sidebar{background:var(--dark-panel)}
-    body.dark .chat{background:var(--dark-panel)}
-    body.dark .messages{background:#071018}
-    body.dark .msg.other{background:#0f1720;color:var(--dark-text)}
-    body.dark .msg.me{background:#064420;color:var(--dark-text)}
-    body.dark .me-avatar{background:#22303a}
-    body.dark input, body.dark .composer input, body.dark .search input{background:#0b1220;color:var(--dark-text);border:1px solid #17202a}
-    body.dark .item:hover{background:#0b1220}
 
     @media(max-width:900px){
       .app{flex-direction:column;padding:8px}
@@ -189,10 +181,7 @@
       await initAfterAuth();
     });
 
-    async function checkSession(){ const r = await api('/me'); if(r && r.user){ await initAfterAuth(); } else { document.getElementById('auth').style.display='block'; document.getElementById('app').style.display='none'; }
-      // apply dark preference early
-      if(localStorage.getItem('dark')==='1') document.body.classList.add('dark');
-    }
+    async function checkSession(){ const r = await api('/me'); if(r && r.user){ await initAfterAuth(); } else { document.getElementById('auth').style.display='block'; document.getElementById('app').style.display='none'; } }
 
     async function initAfterAuth(){ const r = await api('/me'); if(!r || !r.user){ document.getElementById('auth').style.display='block'; document.getElementById('app').style.display='none'; return; }
       me = r.user; document.getElementById('me-name').textContent = me.username; document.getElementById('me-presence').textContent = 'En línea';
@@ -206,10 +195,7 @@
     function bindUI(){
       document.getElementById('add-contact-btn').onclick = async ()=>{
         const username = document.getElementById('add-contact-name').value.trim(); if(!username) return alert('Escribe un usuario');
-        const r = await api('/add-contact','POST',{ username });
-        if(r && r.error) return alert(r.error);
-        document.getElementById('add-contact-name').value='';
-        await loadContacts();
+        const r = await api('/friend/request','POST',{ to: username }); if(r && r.error) return alert(r.error); document.getElementById('add-contact-name').value=''; alert('Solicitud enviada');
       };
 
       document.getElementById('create-group-btn').onclick = async ()=>{ const name = document.getElementById('new-group-name').value.trim(); if(!name) return alert('Nombre requerido'); const r = await api('/groups/create','POST',{ name, members: [] }); if(r && r.error) return alert(r.error); document.getElementById('new-group-name').value=''; await loadGroups(); };
@@ -222,16 +208,16 @@
       document.getElementById('change-avatar').onclick = ()=>{ document.getElementById('avatar-file').click(); };
       document.getElementById('avatar-file').addEventListener('change', async (e)=>{
         const f = e.target.files[0]; if(!f) return; const reader = new FileReader(); reader.onload = async ()=>{
-          const dataUrl = reader.result; const r = await api('/me/profile','POST',{ avatar: dataUrl }); if(r && (r.ok || r.user)){ document.getElementById('me-avatar-img').src = dataUrl; document.getElementById('me-avatar-img').style.display='block'; document.getElementById('me-avatar-initial').style.display='none'; }
+          const dataUrl = reader.result; const r = await api('/me/profile','POST',{ avatar: dataUrl }); if(r && r.ok){ document.getElementById('me-avatar-img').src = dataUrl; document.getElementById('me-avatar-img').style.display='block'; document.getElementById('me-avatar-initial').style.display='none'; }
         }; reader.readAsDataURL(f);
       });
 
       document.getElementById('edit-desc').onclick = async ()=>{
         const desc = prompt('Escribe una descripción (visible en tu perfil):', document.getElementById('me-desc').textContent || '');
-        if(desc!==null){ const r = await api('/me/profile','POST',{ description: desc }); if(r && (r.ok || r.user)){ document.getElementById('me-desc').textContent = desc; } }
+        if(desc!==null){ const r = await api('/me/profile','POST',{ description: desc }); if(r && r.ok){ document.getElementById('me-desc').textContent = desc; } }
       };
 
-      document.getElementById('toggle-dark').onclick = ()=>{ const is = document.body.classList.toggle('dark'); localStorage.setItem('dark', is? '1':'0'); };
+      document.getElementById('toggle-dark').onclick = ()=>{ document.body.classList.toggle('dark'); };
 
       // emoji picker
       const picker = document.getElementById('emoji-picker'); picker.innerHTML=''; EMOJIS.forEach(e=>{ const b=document.createElement('button'); b.textContent=e; b.style.border='none'; b.style.background='transparent'; b.style.fontSize='20px'; b.style.margin='4px'; b.onclick = ()=>{ const input = document.getElementById('message-input'); input.value += e; picker.style.display='none'; input.focus(); }; picker.appendChild(b); });
@@ -247,32 +233,27 @@
       // groups label
       const grpLabel = document.createElement('div'); grpLabel.className='small'; grpLabel.style.margin='8px 8px 4px 8px'; grpLabel.textContent='Grupos'; list.appendChild(grpLabel);
 
-      // contacts label will come after groups list
+      // groups will be inserted by loadGroups to keep order
       // contacts label
-      const contLabel = document.createElement('div'); contLabel.className='small'; contLabel.style.margin='8px 8px 4px 8px'; contLabel.textContent='Contactos';
-
-      // temporarily store groups insertion point
-      list.appendChild(contLabel);
+      const contLabel = document.createElement('div'); contLabel.className='small'; contLabel.style.margin='8px 8px 4px 8px'; contLabel.textContent='Contactos'; list.appendChild(contLabel);
 
       if(Array.isArray(cs)){
         cs.forEach(c=>{
           const el = document.createElement('div'); el.className='item';
-          const avatarHtml = c.avatar? `<img src="${c.avatar}" />` : c.username[0].toUpperCase();
-          el.innerHTML = `<div style="width:44px"><div class="me-avatar">${avatarHtml}</div></div><div class="meta"><div class="title">${c.username} ${c.online?'<span style="color:#34d859">●</span>':''}</div><div class="small">${c.online? 'En línea' : 'Desconectado'}</div></div>`;
+          el.innerHTML = `<div style="width:44px"><div class="me-avatar">${c.avatar?'<img src="'+c.avatar+'"/>':(c.username[0].toUpperCase())}</div></div><div class="meta"><div class="title">${c.username} ${c.online?'<span style="color:#34d859">●</span>':''}</div><div class="small">${c.online? 'En línea' : 'Desconectado'}</div></div>`;
           el.onclick = ()=> openPrivate(c.id,c.username);
-          // insert before contacts header (so contacts are after groups)
-          list.insertBefore(el, contLabel);
+          list.appendChild(el);
         });
       }
     }
 
     async function loadGroups(){ const groups = await api('/groups'); if(!Array.isArray(groups)) return; const list = document.getElementById('contacts-list'); // remove existing group items
       Array.from(list.querySelectorAll('.group-item')).forEach(n=>n.remove());
-      // find contacts label to insert before
-      const contLabel = Array.from(list.children).find(ch => ch.textContent === 'Contactos');
       groups.forEach(g=>{
         const el = document.createElement('div'); el.className='item group-item'; el.innerHTML = `<div style="width:44px"><div class="me-avatar">#</div></div><div class="meta"><div class="title">${g.name}</div><div class="small">${g.members.length} miembros</div></div>`;
         el.onclick = ()=> openGroup(g.id,g.name);
+        // insert before contacts label
+        const contLabel = Array.from(list.children).find(ch => ch.textContent === 'Contactos');
         if(contLabel) list.insertBefore(el, contLabel);
         else list.appendChild(el);
       });
@@ -290,12 +271,13 @@
 
     async function sendMessage(){ const input = document.getElementById('message-input'); const text = input.value.trim(); if(!text) return; input.value=''; if(current.type==='global'){ await api('/messages','POST',{ text }); } else if(current.type==='private'){ await api('/private/send','POST',{ to: current.withId, text }); } else if(current.type==='group'){ await api('/groups/send','POST',{ group_id: current.id, text }); } }
 
-    // sockets
     socket.on('message',(m)=>{ if(current.type==='global'){ render(m); scrollBottom(); } });
     socket.on('private_message',(m)=>{ if(current.type==='private' && (m.from===current.withId || m.to===current.withId)){ render(m); scrollBottom(); } else { loadContacts(); } });
     socket.on('group_message',(m)=>{ if(current.type==='group' && m.group_id===current.id){ render(m); scrollBottom(); } else { loadGroups(); } });
     socket.on('presence_update',(p)=>{ loadContacts(); updateUserCount(); });
-    socket.on('friend_request',(d)=>{ if(me && d.toId === me.id){ alert('Nueva solicitud de amistad de ' + d.fromName); } });
+    socket.on('friend_request',(d)=>{ // simple notification
+      if(me && d.toId === me.id){ alert('Nueva solicitud de amistad de ' + d.fromName); }
+    });
 
     async function updateUserCount(){ const cs = await api('/contacts'); const online = (cs||[]).filter(x=>x.online).length; document.getElementById('user-count').textContent = online + ' online'; }
 
