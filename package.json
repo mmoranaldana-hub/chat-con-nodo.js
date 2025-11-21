@@ -1,7 +1,7 @@
 {
   "name": "chat-master-node",
   "version": "1.1.0",
-  "description": "Converted from PHP to Node.js Express + Socket.io with auth",
+  "description": "Chat en Node.js con Express, Socket.io y JSON database",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -18,4 +18,5 @@
     "node": "18.x"
   }
 }
+
 
