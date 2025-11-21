@@ -1,13 +1,13 @@
 {
   "name": "chat-master-node",
   "version": "1.1.0",
-  "description": "Converted from PHP to Node.js Express + Socket.io with auth and SQLite",
+  "description": "Converted from PHP to Node.js Express + Socket.io with auth",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "bcrypt": "^5.1.0",
+    "bcryptjs": "^3.0.3",
     "body-parser": "^1.20.2",
     "cookie-parser": "^1.4.6",
     "express": "^4.18.2",
@@ -18,3 +18,4 @@
     "node": "18.x"
   }
 }
+
