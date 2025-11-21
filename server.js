@@ -66,11 +66,13 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production", // HTTPS en Render, HTTP local
-    },
+      secure: false,     // 🔥 Render NO usa HTTPS ➜ si está en true no guarda sesión
+      sameSite: "lax",   // funciona en HTTP
+      maxAge: 1000 * 60 * 60 * 24 * 7 // 7 días
+    }
   })
 );
+
 
 function requireAuth(req, res, next) {
   if (req.session.user) return next();
