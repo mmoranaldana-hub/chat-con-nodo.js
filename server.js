@@ -2,7 +2,7 @@ const express = require("express");
 const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs"); // <--- CORREGIDO
 const session = require("express-session");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
@@ -12,7 +12,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const PORT = process.env.PORT || 3000;
+// Railway usa process.env.PORT siempre
+const PORT = process.env.PORT || 8080;
 
 // ---------- JSON DATABASE (NO SQLITE) ----------
 const dataDir = path.join(__dirname, "data");
@@ -143,4 +144,3 @@ io.on("connection", (socket) => {
 server.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
-
