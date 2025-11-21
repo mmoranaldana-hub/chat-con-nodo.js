@@ -289,7 +289,7 @@ io.on("connection", (socket) => {
 // ===============================================
 // ================ SPA SUPPORT ==================
 // ===============================================
-app.get("*", (req, res) => {
+app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
