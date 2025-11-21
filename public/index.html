@@ -3,9 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ChatNodo — WhatsApp Style</title>
-
-  <link rel="stylesheet" href="/css/style.css" />
+  <title>ChatNodo — WhatsApp Style (SPA)</title>
 
   <style>
     :root{
@@ -14,266 +12,509 @@
       --sidebar:#f6f6f6;
     }
     *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif}
-    html,body,#app{height:100%;background:var(--bg);color:var(--text)}
+    html,body{height:100%;background:var(--bg);color:var(--text)}
     a{color:inherit;text-decoration:none}
-    #app{height:100vh;display:none;align-items:stretch;gap:18px;padding:18px}
 
-    .sidebar{width:340px;background:var(--sidebar);border-radius:12px;
-      display:flex;flex-direction:column;overflow:hidden;
-      box-shadow:0 6px 18px rgba(0,0,0,0.07)}
-    .sidebar .top{display:flex;align-items:center;
-      justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e6e6e6}
-    .brand{display:flex;gap:12px;align-items:center}
-    .brand h1{font-size:20px;color:var(--header);font-weight:700}
-    .profile{display:flex;gap:12px;align-items:center}
-    .avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#cfe9d6,#8fd6a0);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
-
-    .search{padding:10px 14px;border-bottom:1px solid #eee}
-    .search input{width:100%;padding:10px;border-radius:20px;border:1px solid #e5e5e5;background:#fff}
-
-    .list{overflow:auto;padding:10px 8px;flex:1}
-    .item{display:flex;gap:12px;align-items:center;padding:10px;border-radius:8px;cursor:pointer}
+    /* layout */
+    .container{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{width:100%;max-width:1100px;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.08);overflow:hidden;display:flex}
+    /* left (sidebar) */
+    .sidebar{width:340px;background:var(--sidebar);padding:12px;display:flex;flex-direction:column;gap:12px}
+    .brand{display:flex;align-items:center;gap:12px;padding:8px}
+    .brand .logo{width:44px;height:44;border-radius:50%;background:linear-gradient(135deg,#cfe9d6,#8fd6a0);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+    .search input{width:100%;padding:10px;border-radius:20px;border:1px solid #e6e6e6}
+    .profile{display:flex;align-items:center;gap:10px;padding:8px}
+    .me-avatar{width:44px;height:44;border-radius:50%;background:#ddd;display:flex;align-items:center;justify-content:center}
+    .me-info .name{font-weight:700}
+    .list{flex:1;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+    .item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
     .item:hover{background:#f4f7f6}
-    .dot{width:10px;height:10px;border-radius:50%}
-    .dot.online{background:#34d859}
-    .dot.offline{background:#cfcfcf}
+    .meta .title{font-weight:600}
+    .meta .desc{font-size:12px;color:var(--muted)}
 
-    .chat{flex:1;display:flex;flex-direction:column;border-radius:12px;
-      background:#fff;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
-    .chat .head{display:flex;align-items:center;gap:12px;padding:14px;
-      border-bottom:1px solid #eee;background:linear-gradient(90deg,var(--header),#128C7E);color:#fff}
-    .chat .messages{flex:1;padding:18px;overflow:auto;background:#eaf3ee}
-    .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;
-      box-shadow:0 1px 0 rgba(0,0,0,0.03)}
+    /* right (chat) */
+    .chat{flex:1;display:flex;flex-direction:column;background:#fff}
+    .chat .head{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #eee;background:linear-gradient(90deg,var(--header),#128C7E);color:#fff}
+    .messages{flex:1;overflow:auto;padding:18px;background:#eaf3ee}
+    .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,0.03)}
     .msg.me{margin-left:auto;background:var(--me)}
     .msg.other{background:var(--them)}
-    .msg .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
+    .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
     .composer{display:flex;gap:10px;padding:12px;border-top:1px solid #f0f0f0;align-items:center}
+    .composer input{flex:1;padding:10px;border-radius:20px;border:1px solid #e6e6e6}
+    .btn{background:var(--header);color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer}
+    .btn.ghost{background:transparent;color:var(--header);border:1px solid rgba(255,255,255,0.12)}
+    .small{font-size:12px;color:var(--muted)}
 
-    .emoji-picker{position:absolute;right:40px;bottom:90px;background:#fff;
-      padding:8px;border:1px solid #eee;border-radius:8px;
-      box-shadow:0 8px 24px rgba(0,0,0,0.12);display:grid;
-      grid-template-columns:repeat(8,1fr);gap:6px;z-index:50}
+    /* auth */
+    #auth-screen{width:100%;max-width:420px;padding:24px}
+    .auth-box{background:#fff;padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.06)}
+    .auth-box input{width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e6;margin-bottom:10px}
 
-    /* AUTH BOX */
-    #auth-box{
-      max-width:320px;
-      margin:40px auto;
-      padding:20px;
-      background:#fff;
-      border-radius:12px;
-      box-shadow:0 6px 18px rgba(0,0,0,0.1);
-      display:flex;
-      flex-direction:column;
-      gap:10px;
+    /* responsive */
+    @media(max-width:900px){
+      .card{flex-direction:column}
+      .sidebar{width:100%;order:2}
+      .chat{order:1}
     }
-    #auth-box input{padding:10px;border:1px solid #ddd;border-radius:8px}
-    #auth-box button{padding:10px;border:none;background:var(--header);
-      color:#fff;border-radius:8px;cursor:pointer}
   </style>
 </head>
 <body>
+  <div class="container" id="root">
 
-<!-- LOGIN + REGISTRO -->
-<div id="auth-box">
-  <h2>Accede o regístrate</h2>
+    <!-- AUTH SCREEN (SPA) -->
+    <div id="auth-screen" style="display:none">
+      <div class="auth-box">
+        <h2 id="auth-title">Inicia sesión</h2>
 
-  <input id="login-user" placeholder="Usuario" />
-  <input id="login-pass" type="password" placeholder="Contraseña" />
-  <button onclick="login()">Iniciar sesión</button>
+        <div id="login-form">
+          <input id="login-username" placeholder="Usuario" />
+          <input id="login-password" type="password" placeholder="Contraseña" />
+          <button class="btn" id="login-btn">Entrar</button>
+          <div style="margin-top:12px;font-size:13px">
+            ¿No tienes cuenta? <a href="#" id="show-register">Regístrate</a>
+          </div>
+        </div>
 
-  <hr>
+        <div id="register-form" style="display:none">
+          <input id="reg-username" placeholder="Usuario" />
+          <input id="reg-password" type="password" placeholder="Contraseña" />
+          <button class="btn" id="reg-btn">Crear cuenta</button>
+          <div style="margin-top:12px;font-size:13px">
+            ¿Ya tienes cuenta? <a href="#" id="show-login">Iniciar sesión</a>
+          </div>
+        </div>
 
-  <input id="reg-user" placeholder="Nuevo usuario" />
-  <input id="reg-pass" type="password" placeholder="Contraseña" />
-  <button onclick="register()">Registrarse</button>
-</div>
+        <div id="auth-msg" class="small" style="margin-top:10px;color:#b00"></div>
+      </div>
+    </div>
 
-<!-- APP -->
-<div id="app">
-  <aside class="sidebar">
-    <div class="top">
-      <div class="brand">
-        <div class="avatar">CN</div>
-        <div>
-          <h1>ChatNodo</h1>
-          <div style="font-size:12px;color:var(--muted)">Node + Socket.io</div>
+    <!-- APP (hidden until login) -->
+    <div class="card" id="app" style="display:none">
+      <!-- SIDEBAR -->
+      <div class="sidebar">
+        <div class="brand">
+          <div class="logo">CN</div>
+          <div>
+            <div style="font-weight:700">ChatNodo</div>
+            <div class="small">Node + Socket.io</div>
+          </div>
+        </div>
+
+        <div class="search">
+          <input id="search" placeholder="Buscar contactos o grupos..." />
+        </div>
+
+        <div class="profile">
+          <div class="me-avatar" id="me-avatar">ME</div>
+          <div class="me-info">
+            <div class="name" id="me-name">Invitado</div>
+            <div class="small" id="me-presence">Desconectado</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px">
+          <input id="add-contact-name" placeholder="Agregar contacto (usuario)" style="flex:1;padding:8px;border-radius:8px;border:1px solid #ddd" />
+          <button class="btn" id="add-contact-btn">Añadir</button>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <input id="new-group-name" placeholder="Crear grupo (nombre)" style="flex:1;padding:8px;border-radius:8px;border:1px solid #ddd" />
+          <button class="btn" id="create-group-btn">Crear</button>
+        </div>
+
+        <div class="list" id="contacts-list">
+          <!-- contactos y grupos -->
+        </div>
+      </div>
+
+      <!-- CHAT -->
+      <div class="chat">
+        <div class="head">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="me-avatar" id="chat-avatar">G</div>
+            <div>
+              <div style="font-weight:700" id="chat-name">Global</div>
+              <div class="small" id="chat-sub">Chat público</div>
+            </div>
+          </div>
+
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+            <div class="small" id="user-count">0 online</div>
+            <button id="logout-btn" class="btn.ghost" style="background:#ffffff;border:1px solid #fff;color:#fff">Salir</button>
+          </div>
+        </div>
+
+        <div class="messages" id="messages"></div>
+
+        <div class="composer">
+          <button id="emoji-toggle" class="btn.ghost">😀</button>
+          <input id="message-input" placeholder="Escribe un mensaje..." />
+          <button id="send-btn" class="btn">Enviar</button>
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="search">
-      <input id="search" placeholder="Buscar contactos o grupos..." />
-    </div>
+  <div id="emoji-picker" style="display:none;position:fixed;right:24px;bottom:80px;background:#fff;padding:10px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.12)">
+  </div>
 
-    <div style="padding:10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:10px">
-      <div class="avatar" id="me-avatar">ME</div>
-      <div class="me-info">
-        <div class="name" id="me-name">Invitado</div>
-        <div class="small" id="me-presence">Desconectado</div>
-      </div>
-    </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    /* ========== CONFIG ========== */
+    const socket = io();
+    let me = null;
+    let currentChat = { type: "global" }; // {type: "global"} | {type:"private", id:123, name:""} | {type:"group", id:123, name:""}
+    const EMOJIS = ["😀","😂","😍","😅","😎","👍","🔥","❤️","🎉","🤝","👏","🤖","🙌","😢","😡","🤩"];
 
-    <div class="list" id="contacts-list"></div>
-  </aside>
+    /* ===== API helper - include credentials ===== */
+    async function api(path, method="GET", body) {
+      const opts = {
+        method,
+        headers: {},
+        credentials: "include"
+      };
+      if (body) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+      }
+      const res = await fetch("/api" + path, opts);
+      // try parse json
+      try { return await res.json(); } catch(e){ return null; }
+    }
 
-  <main class="chat">
-    <div class="head">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div class="avatar" id="chat-avatar">G</div>
-        <div>
-          <div class="title" id="chat-name">Global</div>
-          <div style="font-size:13px" id="chat-sub">Chat público</div>
-        </div>
-      </div>
-    </div>
+    /* ===== AUTH UI logic ===== */
+    const authScreen = document.getElementById("auth-screen");
+    const appEl = document.getElementById("app");
+    const authMsg = document.getElementById("auth-msg");
+    document.getElementById("show-register").addEventListener("click", (e)=>{ e.preventDefault(); toggleAuth(true); });
+    document.getElementById("show-login").addEventListener("click", (e)=>{ e.preventDefault(); toggleAuth(false); });
 
-    <div class="messages" id="messages"></div>
+    function toggleAuth(showRegister){
+      document.getElementById("login-form").style.display = showRegister ? "none" : "block";
+      document.getElementById("register-form").style.display = showRegister ? "block" : "none";
+      document.getElementById("auth-title").textContent = showRegister ? "Regístrate" : "Inicia sesión";
+      authMsg.textContent = "";
+    }
 
-    <div class="composer">
-      <button id="emoji-btn">😀</button>
-      <input id="message-input" placeholder="Escribe un mensaje..." />
-      <button id="send-btn">Enviar</button>
-    </div>
-  </main>
-</div>
+    async function login(){
+      authMsg.textContent = "";
+      const username = document.getElementById("login-username").value.trim();
+      const password = document.getElementById("login-password").value.trim();
+      if(!username || !password){ authMsg.textContent = "Completa usuario y contraseña"; return; }
+      const r = await api("/login","POST",{ username, password });
+      if(!r) { authMsg.textContent = "Error del servidor"; return; }
+      if(r.error){ authMsg.textContent = r.error; return; }
+      // success
+      await initAfterAuth();
+    }
 
-<div id="emoji-picker" class="emoji-picker" style="display:none"></div>
+    async function register(){
+      authMsg.textContent = "";
+      const username = document.getElementById("reg-username").value.trim();
+      const password = document.getElementById("reg-password").value.trim();
+      if(!username || !password){ authMsg.textContent = "Completa usuario y contraseña"; return; }
+      const r = await api("/register","POST",{ username, password });
+      if(!r) { authMsg.textContent = "Error del servidor"; return; }
+      if(r.error){ authMsg.textContent = r.error; return; }
+      // success
+      await initAfterAuth();
+    }
 
-<script src="/socket.io/socket.io.js"></script>
-<script>
+    document.getElementById("login-btn").addEventListener("click", login);
+    document.getElementById("reg-btn").addEventListener("click", register);
 
-const socket = io();
-let me = null;
-let current = {type:"global"};
+    /* ===== INITIAL FLOW: check session ===== */
+    async function checkSession(){
+      const r = await api("/me");
+      if(r && r.user){
+        await initAfterAuth();
+      } else {
+        // show auth
+        authScreen.style.display = "block";
+        appEl.style.display = "none";
+      }
+    }
 
-// API helper con sesión
-async function api(path, method="GET", body){
-  const opts = {
-    method,
-    headers:{},
-    credentials:"include"
-  };
-  if(body){
-    opts.headers["Content-Type"]="application/json";
-    opts.body = JSON.stringify(body);
-  }
-  const r = await fetch("/api"+path, opts);
-  return r.json();
-}
+    /* ===== after auth (either login/register or existing session) ===== */
+    async function initAfterAuth(){
+      // hide auth, show app
+      authScreen.style.display = "none";
+      appEl.style.display = "flex";
 
-/* LOGIN */
-async function login(){
-  const username = document.getElementById("login-user").value;
-  const password = document.getElementById("login-pass").value;
+      // load me
+      const r = await api("/me");
+      me = r.user;
+      document.getElementById("me-name").textContent = me.username;
+      document.getElementById("me-presence").textContent = "En línea";
 
-  const r = await api("/login","POST",{ username, password });
+      socket.emit("online", me.id);
 
-  if(r.error) return alert(r.error);
+      // setup UI listeners
+      setupUI();
 
-  location.reload();
-}
+      // load contacts, groups, messages
+      await loadContacts();
+      await loadGroups();
+      await openGlobal();
+    }
 
-/* REGISTRO */
-async function register(){
-  const username = document.getElementById("reg-user").value;
-  const password = document.getElementById("reg-pass").value;
+    /* ===== UI setup ===== */
+    function setupUI(){
+      document.getElementById("add-contact-btn").onclick = async ()=>{
+        const username = document.getElementById("add-contact-name").value.trim();
+        if(!username) return alert("Escribe un nombre de usuario");
+        const r = await api("/add-contact","POST",{ username });
+        if(r && r.error) return alert(r.error);
+        document.getElementById("add-contact-name").value = "";
+        loadContacts();
+      };
 
-  const r = await api("/register","POST",{ username, password });
+      document.getElementById("create-group-btn").onclick = async ()=>{
+        const name = document.getElementById("new-group-name").value.trim();
+        if(!name) return alert("Nombre requerido");
+        // by default create group with only creator (backend will add creator)
+        const r = await api("/groups/create","POST",{ name, members:[] });
+        if(r && r.error) return alert(r.error);
+        document.getElementById("new-group-name").value = "";
+        loadGroups();
+      };
 
-  if(r.error) return alert(r.error);
+      document.getElementById("send-btn").onclick = sendMessage;
+      document.getElementById("message-input").addEventListener("keydown", (e)=>{ if(e.key==="Enter") sendMessage(); });
 
-  location.reload();
-}
+      document.getElementById("emoji-toggle").onclick = ()=>{
+        const picker = document.getElementById("emoji-picker");
+        if(picker.style.display === "none" || !picker.style.display) picker.style.display = "block";
+        else picker.style.display = "none";
+      };
 
-// Cargar usuario
-async function loadMe(){
-  const r = await api("/me");
-  me = r.user;
+      document.getElementById("logout-btn").onclick = async ()=>{
+        await api("/logout","POST");
+        location.reload();
+      };
 
-  if(!me){
-    document.getElementById("auth-box").style.display="flex";
-    document.getElementById("app").style.display="none";
-    return;
-  }
+      // build emoji picker
+      const picker = document.getElementById("emoji-picker");
+      picker.innerHTML = "";
+      EMOJIS.forEach(e=>{
+        const d = document.createElement("button");
+        d.textContent = e;
+        d.style.border="none"; d.style.background="transparent"; d.style.fontSize="20px"; d.style.cursor="pointer"; d.style.margin="4px";
+        d.onclick = ()=> {
+          const input = document.getElementById("message-input");
+          input.value += e;
+          input.focus();
+          picker.style.display = "none";
+        };
+        picker.appendChild(d);
+      });
+    }
 
-  document.getElementById("auth-box").style.display="none";
-  document.getElementById("app").style.display="flex";
+    /* ===== Contacts & Groups ===== */
+    async function loadContacts(){
+      const cs = await api("/contacts");
+      const list = document.getElementById("contacts-list");
+      list.innerHTML = "";
 
-  document.getElementById("me-name").textContent = me.username;
-  document.getElementById("me-presence").textContent = "En línea";
+      // Global entry
+      const g = document.createElement("div");
+      g.className = "item";
+      g.innerHTML = `<div style="width:40px"><div class="me-avatar">G</div></div>
+        <div class="meta"><div class="title">Global</div><div class="desc">Chat público</div></div>`;
+      g.onclick = ()=> openGlobal();
+      list.appendChild(g);
 
-  socket.emit("online", me.id);
-}
+      // groups header
+      const grpTitle = document.createElement("div");
+      grpTitle.style.marginTop="8px";
+      grpTitle.style.fontSize="13px";
+      grpTitle.style.color="var(--muted)";
+      grpTitle.textContent = "Grupos";
+      list.appendChild(grpTitle);
 
-/* CONTACTOS */
-async function loadContacts(){
-  const cs = me ? await api("/contacts") : [];
-  const list = document.getElementById("contacts-list");
-  list.innerHTML = "";
+      // groups will be appended after loadGroups() populates
+      // contacts header
+      const contTitle = document.createElement("div");
+      contTitle.style.marginTop="8px";
+      contTitle.style.fontSize="13px";
+      contTitle.style.color="var(--muted)";
+      contTitle.textContent = "Contactos";
+      list.appendChild(contTitle);
 
-  let g = document.createElement("div");
-  g.className="item";
-  g.innerHTML = `<div class="meta"><div class="title">Global</div>
-                 <div class="desc">Chat público</div></div>`;
-  g.onclick = openGlobal;
-  list.appendChild(g);
-}
+      // append contacts
+      if(Array.isArray(cs)){
+        cs.forEach(c=>{
+          const el = document.createElement("div");
+          el.className = "item";
+          el.innerHTML = `<div style="width:40px"><div class="me-avatar">${c.username[0].toUpperCase()}</div></div>
+            <div style="flex:1"><div class="title">${c.username} ${c.online?'<span style="color:#34d859;font-size:12px">●</span>':''}</div>
+            <div class="desc">${c.online? 'En línea' : 'Desconectado'}</div></div>`;
+          el.onclick = ()=> openPrivate(c.id, c.username);
+          list.appendChild(el);
+        });
+      }
+    }
 
-/* GLOBAL CHAT */
-async function loadGlobal(){
-  current = {type:"global"};
-  document.getElementById("chat-name").textContent="Global";
-  document.getElementById("chat-sub").textContent="Chat público";
+    async function loadGroups(){
+      const groups = await api("/groups");
+      if(!Array.isArray(groups)) return;
+      // find insertion point (after "Grupos" label)
+      const list = document.getElementById("contacts-list");
+      // remove existing group items (class group-item)
+      Array.from(list.querySelectorAll(".group-item")).forEach(n=>n.remove());
 
-  const msgs = await api("/messages");
-  const box = document.getElementById("messages");
-  box.innerHTML="";
+      groups.forEach(g=>{
+        const el = document.createElement("div");
+        el.className = "item group-item";
+        el.innerHTML = `<div style="width:40px"><div class="me-avatar">#</div></div>
+          <div style="flex:1"><div class="title">${g.name}</div><div class="desc">${g.members.length} miembros</div></div>`;
+        el.onclick = ()=> openGroup(g.id, g.name);
+        // insert before contacts header (find contacts header)
+        // find index of contacts header
+        const contTitle = Array.from(list.children).find(ch => ch.textContent === "Contactos");
+        if(contTitle) list.insertBefore(el, contTitle);
+        else list.appendChild(el);
+      });
+    }
 
-  msgs.forEach(render);
-}
+    /* ===== CHAT operations ===== */
+    async function openGlobal(){
+      currentChat = { type:"global" };
+      document.getElementById("chat-name").textContent = "Global";
+      document.getElementById("chat-sub").textContent = "Chat público";
+      document.getElementById("messages").innerHTML = "";
+      const msgs = await api("/messages");
+      if(Array.isArray(msgs)) msgs.forEach(renderMessage);
+      scrollToBottom();
+      // join a "global" room if server supports (optional)
+      socket.emit("join_group", 0);
+    }
 
-/* RENDER MENSAJES */
-function render(m){
-  const box = document.getElementById("messages");
-  const el = document.createElement("div");
-  const isMe = me && (m.user_id===me.id || m.from===me.id);
+    async function openPrivate(userId, username){
+      currentChat = { type:"private", id: userId, name: username };
+      document.getElementById("chat-name").textContent = username;
+      document.getElementById("chat-sub").textContent = "Chat privado";
+      document.getElementById("messages").innerHTML = "";
+      const msgs = await api("/private/" + userId);
+      if(Array.isArray(msgs)) msgs.forEach(renderMessage);
+      scrollToBottom();
+      socket.emit("join_private", { me: me.id, other: userId });
+    }
 
-  el.className="msg "+(isMe?"me":"other");
+    async function openGroup(groupId, groupName){
+      currentChat = { type:"group", id: groupId, name: groupName };
+      document.getElementById("chat-name").textContent = groupName;
+      document.getElementById("chat-sub").textContent = "Grupo";
+      document.getElementById("messages").innerHTML = "";
+      const msgs = await api("/groups/messages/" + groupId);
+      if(Array.isArray(msgs)) msgs.forEach(renderMessage);
+      scrollToBottom();
+      socket.emit("join_group", groupId);
+    }
 
-  el.innerHTML = `
-    <div class="meta">${m.username || "User"} • 
-    ${new Date(m.created_at).toLocaleString()}</div>
-    <div>${m.text}</div>
-  `;
+    /* Render message (single function used by sockets) */
+    function renderMessage(m){
+      const box = document.getElementById("messages");
+      const el = document.createElement("div");
+      const isMe = me && ((m.user_id && m.user_id === me.id) || (m.from && m.from === me.id));
+      el.className = "msg " + (isMe ? "me" : "other");
+      const metaUser = m.username || m.fromName || (m.from ? ("User "+m.from) : "User");
+      el.innerHTML = `<div class="meta">${metaUser} • ${new Date(m.created_at).toLocaleString()}</div><div>${escapeHtml(m.text)}</div>`;
+      box.appendChild(el);
+    }
 
-  box.appendChild(el);
-  box.scrollTop = box.scrollHeight;
-}
+    /* sendMessage - always use API and rely on socket to render to avoid duplicate */
+    async function sendMessage(){
+      const input = document.getElementById("message-input");
+      const text = input.value.trim();
+      if(!text) return;
+      input.value = "";
+      if(currentChat.type === "global"){
+        await api("/messages","POST",{ text });
+        // do NOT render immediately; server will emit and socket will render
+      } else if(currentChat.type === "private"){
+        await api("/private/send","POST",{ to: currentChat.id, text });
+      } else if(currentChat.type === "group"){
+        await api("/groups/send","POST",{ group_id: currentChat.id, text });
+      }
+      // scroll will happen when socket receives
+    }
 
-/* ENVIAR */
-async function sendMessage(){
-  let text = document.getElementById("message-input").value;
-  if(!text.trim()) return;
-  
-  const r = await api("/messages","POST",{text});
-  render(r);
+    /* scroll util */
+    function scrollToBottom(){
+      const box = document.getElementById("messages");
+      setTimeout(()=>{ box.scrollTop = box.scrollHeight; }, 100);
+    }
 
-  document.getElementById("message-input").value="";
-}
+    /* simple escape to avoid injection */
+    function escapeHtml(unsafe) {
+      if(!unsafe) return "";
+      return unsafe.replace(/[&<"'>]/g, function(m) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]);
+      });
+    }
 
-document.getElementById("send-btn").onclick = sendMessage;
+    /* ===== SOCKET.IO listeners ===== */
+    socket.on("connect", ()=>{
+      console.log("socket connected");
+    });
 
-/* SOCKET */
-socket.on("message", render);
+    // Global messages
+    socket.on("message", (m)=>{
+      // only render if current chat is global
+      if(currentChat.type === "global"){
+        renderMessage(m);
+        scrollToBottom();
+      }
+    });
 
-// INIT
-(async ()=>{
-  await loadMe();
-  await loadContacts();
-  await loadGlobal();
-})();
-</script>
+    // Private messages
+    socket.on("private_message", (m)=>{
+      // render if we're in that private chat OR if the message is FROM/TO me (to notify)
+      const isRelevant = (currentChat.type === "private" && (m.from === currentChat.id || m.to === currentChat.id));
+      if(isRelevant) {
+        renderMessage(m);
+        scrollToBottom();
+      } else {
+        // optionally flash contact
+        loadContacts();
+      }
+    });
+
+    // Group messages
+    socket.on("group_message", (m)=>{
+      if(currentChat.type === "group" && m.group_id === currentChat.id){
+        renderMessage(m);
+        scrollToBottom();
+      } else {
+        loadGroups();
+      }
+    });
+
+    // Presence updates
+    socket.on("presence_update", (p)=>{
+      loadContacts();
+    });
+
+    /* ===== helper: update user count (simple) ===== */
+    async function updateUserCount(){
+      const cs = await api("/contacts"); // contacts includes online flags
+      const online = (cs || []).filter(x => x.online).length;
+      document.getElementById("user-count").textContent = online + " online";
+    }
+
+    /* ===== init ===== */
+    (async ()=>{
+      await checkSession();
+      // when in app, periodically update presence & counts
+      setInterval(()=>{ if(me) { loadContacts(); updateUserCount(); } }, 5000);
+    })();
+
+    /* Expose login/register in global scope for inline onclick (if needed) */
+    window.login = login;
+    window.register = register;
+
+  </script>
 </body>
 </html>
-
