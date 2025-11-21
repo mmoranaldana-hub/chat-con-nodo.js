@@ -5,11 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>ChatNodo — WhatsApp Style</title>
 
-  <!-- Estilos -->
   <link rel="stylesheet" href="/css/style.css" />
 
   <style>
-    /* Mini-reset + fuentes */
     :root{
       --bg:#e9edef; --panel:#ffffff; --accent:#25D366; --muted:#8a9398;
       --me:#DCF8C6; --them:#ffffff; --header:#075E54; --text:#111827;
@@ -18,272 +16,264 @@
     *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif}
     html,body,#app{height:100%;background:var(--bg);color:var(--text)}
     a{color:inherit;text-decoration:none}
-    /* Layout */
-    #app{height:100vh;display:flex;align-items:stretch;gap:18px;padding:18px}
+    #app{height:100vh;display:none;align-items:stretch;gap:18px;padding:18px}
 
-    /* Sidebar */
-    .sidebar{width:340px;background:var(--sidebar);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.07)}
-    .sidebar .top{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e6e6e6}
+    .sidebar{width:340px;background:var(--sidebar);border-radius:12px;
+      display:flex;flex-direction:column;overflow:hidden;
+      box-shadow:0 6px 18px rgba(0,0,0,0.07)}
+    .sidebar .top{display:flex;align-items:center;
+      justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e6e6e6}
     .brand{display:flex;gap:12px;align-items:center}
     .brand h1{font-size:20px;color:var(--header);font-weight:700}
     .profile{display:flex;gap:12px;align-items:center}
     .avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#cfe9d6,#8fd6a0);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
-    .me-info{display:flex;flex-direction:column}
-    .me-info .name{font-weight:600}
-    .me-info .small{font-size:12px;color:var(--muted)}
 
-    /* Search */
     .search{padding:10px 14px;border-bottom:1px solid #eee}
     .search input{width:100%;padding:10px;border-radius:20px;border:1px solid #e5e5e5;background:#fff}
 
-    /* List */
     .list{overflow:auto;padding:10px 8px;flex:1}
     .item{display:flex;gap:12px;align-items:center;padding:10px;border-radius:8px;cursor:pointer}
     .item:hover{background:#f4f7f6}
-    .item .meta{flex:1;display:flex;flex-direction:column}
-    .item .meta .title{font-weight:600}
-    .item .meta .desc{font-size:13px;color:var(--muted)}
     .dot{width:10px;height:10px;border-radius:50%}
     .dot.online{background:#34d859}
     .dot.offline{background:#cfcfcf}
 
-    /* Main chat area */
-    .chat{flex:1;display:flex;flex-direction:column;border-radius:12px;background:#fff;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
-    .chat .head{display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid #eee;background:linear-gradient(90deg,var(--header),#128C7E);color:#fff}
-    .chat .head .title{font-weight:700}
-    .chat .messages{flex:1;padding:18px;overflow:auto;background:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" opacity="0.03"><rect width="200" height="200" fill="%23ffffff"/></svg>') #eaf3ee}
-    .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,0.03)}
+    .chat{flex:1;display:flex;flex-direction:column;border-radius:12px;
+      background:#fff;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+    .chat .head{display:flex;align-items:center;gap:12px;padding:14px;
+      border-bottom:1px solid #eee;background:linear-gradient(90deg,var(--header),#128C7E);color:#fff}
+    .chat .messages{flex:1;padding:18px;overflow:auto;background:#eaf3ee}
+    .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;
+      box-shadow:0 1px 0 rgba(0,0,0,0.03)}
     .msg.me{margin-left:auto;background:var(--me)}
     .msg.other{background:var(--them)}
     .msg .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
     .composer{display:flex;gap:10px;padding:12px;border-top:1px solid #f0f0f0;align-items:center}
-    .composer input{flex:1;padding:10px;border-radius:20px;border:1px solid #e6e6e6}
-    .btn{background:var(--header);color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer}
-    .btn.ghost{background:transparent;color:var(--header);border:1px solid rgba(255,255,255,0.12)}
 
-    /* Emoji picker small */
-    .emoji-picker{position:absolute;right:40px;bottom:90px;background:#fff;padding:8px;border:1px solid #eee;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);display:grid;grid-template-columns:repeat(8,1fr);gap:6px;z-index:50}
-    .emoji{font-size:20px;cursor:pointer;padding:6px;text-align:center}
-    /* Responsive */
-    @media(max-width:900px){
-      #app{padding:8px}
-      .sidebar{display:none}
+    .emoji-picker{position:absolute;right:40px;bottom:90px;background:#fff;
+      padding:8px;border:1px solid #eee;border-radius:8px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.12);display:grid;
+      grid-template-columns:repeat(8,1fr);gap:6px;z-index:50}
+
+    /* AUTH BOX */
+    #auth-box{
+      max-width:320px;
+      margin:40px auto;
+      padding:20px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,0.1);
+      display:flex;
+      flex-direction:column;
+      gap:10px;
     }
+    #auth-box input{padding:10px;border:1px solid #ddd;border-radius:8px}
+    #auth-box button{padding:10px;border:none;background:var(--header);
+      color:#fff;border-radius:8px;cursor:pointer}
   </style>
 </head>
 <body>
-  <div id="app">
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <div class="top">
-        <div class="brand">
-          <div class="avatar">CN</div>
-          <div>
-            <h1>ChatNodo</h1>
-            <div style="font-size:12px;color:var(--muted)">Node + Socket.io</div>
-          </div>
-        </div>
+
+<!-- LOGIN + REGISTRO -->
+<div id="auth-box">
+  <h2>Accede o regístrate</h2>
+
+  <input id="login-user" placeholder="Usuario" />
+  <input id="login-pass" type="password" placeholder="Contraseña" />
+  <button onclick="login()">Iniciar sesión</button>
+
+  <hr>
+
+  <input id="reg-user" placeholder="Nuevo usuario" />
+  <input id="reg-pass" type="password" placeholder="Contraseña" />
+  <button onclick="register()">Registrarse</button>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <aside class="sidebar">
+    <div class="top">
+      <div class="brand">
+        <div class="avatar">CN</div>
         <div>
-          <button id="new-group" class="btn">Nuevo</button>
+          <h1>ChatNodo</h1>
+          <div style="font-size:12px;color:var(--muted)">Node + Socket.io</div>
         </div>
       </div>
+    </div>
 
-      <div class="search">
-        <input id="search" placeholder="Buscar contactos o grupos..." />
+    <div class="search">
+      <input id="search" placeholder="Buscar contactos o grupos..." />
+    </div>
+
+    <div style="padding:10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:10px">
+      <div class="avatar" id="me-avatar">ME</div>
+      <div class="me-info">
+        <div class="name" id="me-name">Invitado</div>
+        <div class="small" id="me-presence">Desconectado</div>
       </div>
+    </div>
 
-      <div style="padding:10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:10px">
-        <div class="avatar" id="me-avatar">ME</div>
-        <div class="me-info">
-          <div class="name" id="me-name">Invitado</div>
-          <div class="small" id="me-presence">Desconectado</div>
+    <div class="list" id="contacts-list"></div>
+  </aside>
+
+  <main class="chat">
+    <div class="head">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="avatar" id="chat-avatar">G</div>
+        <div>
+          <div class="title" id="chat-name">Global</div>
+          <div style="font-size:13px" id="chat-sub">Chat público</div>
         </div>
       </div>
+    </div>
 
-      <div class="list" id="contacts-list">
-        <!-- contactos se inyectan aquí -->
-      </div>
-    </aside>
+    <div class="messages" id="messages"></div>
 
-    <!-- CHAT AREA -->
-    <main class="chat">
-      <div class="head">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div class="avatar" id="chat-avatar">G</div>
-          <div>
-            <div class="title" id="chat-name">Global</div>
-            <div style="font-size:13px" id="chat-sub">Chat público</div>
-          </div>
-        </div>
-      </div>
+    <div class="composer">
+      <button id="emoji-btn">😀</button>
+      <input id="message-input" placeholder="Escribe un mensaje..." />
+      <button id="send-btn">Enviar</button>
+    </div>
+  </main>
+</div>
 
-      <div class="messages" id="messages">
-        <!-- mensajes -->
-      </div>
+<div id="emoji-picker" class="emoji-picker" style="display:none"></div>
 
-      <div class="composer">
-        <button id="emoji-btn" class="btn.ghost">😀</button>
-        <input id="message-input" placeholder="Escribe un mensaje..." />
-        <button id="send-btn" class="btn">Enviar</button>
-      </div>
-    </main>
-  </div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
 
-  <!-- Emoji picker -->
-  <div id="emoji-picker" class="emoji-picker" style="display:none"></div>
+const socket = io();
+let me = null;
+let current = {type:"global"};
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    // ====== Client minimal integrado con tu backend ======
-    const socket = io();
-    let me = null;
-    let current = {type:"global"};
-
-   async function api(path, method = "GET", body) {
+// API helper con sesión
+async function api(path, method="GET", body){
   const opts = {
     method,
-    headers: {},
-    credentials: "include"   // 🔥 NECESARIO PARA QUE FUNCIONE LOGIN Y TODO
+    headers:{},
+    credentials:"include"
   };
-
-  if (body) {
-    opts.headers["Content-Type"] = "application/json";
+  if(body){
+    opts.headers["Content-Type"]="application/json";
     opts.body = JSON.stringify(body);
   }
-
-  const res = await fetch("/api" + path, opts);
-  return res.json();
+  const r = await fetch("/api"+path, opts);
+  return r.json();
 }
 
+/* LOGIN */
+async function login(){
+  const username = document.getElementById("login-user").value;
+  const password = document.getElementById("login-pass").value;
 
-    // UI refs
-    const contactsList = document.getElementById("contacts-list");
-    const messagesEl = document.getElementById("messages");
-    const meNameEl = document.getElementById("me-name");
-    const mePresenceEl = document.getElementById("me-presence");
-    const chatNameEl = document.getElementById("chat-name");
-    const chatSubEl = document.getElementById("chat-sub");
-    const input = document.getElementById("message-input");
-    const sendBtn = document.getElementById("send-btn");
-    const emojiBtn = document.getElementById("emoji-btn");
-    const emojiPicker = document.getElementById("emoji-picker");
+  const r = await api("/login","POST",{ username, password });
 
-    const EMOJIS = ["😀","😂","😍","😅","😎","👍","🔥","❤️","🎉","🤝","👏","🤖","🙌","😢","😡","🤩"];
+  if(r.error) return alert(r.error);
 
-    // build emoji picker
-    function buildEmojis(){
-      emojiPicker.innerHTML = "";
-      EMOJIS.forEach(e=>{
-        const d = document.createElement("div");
-        d.className="emoji";
-        d.textContent = e;
-        d.onclick = ()=> { input.value += e; emojiPicker.style.display="none"; input.focus(); }
-        emojiPicker.appendChild(d);
-      });
-    }
-    buildEmojis();
+  location.reload();
+}
 
-    emojiBtn.addEventListener("click", ()=> {
-      emojiPicker.style.display = emojiPicker.style.display === "none" ? "grid" : "none";
-    });
+/* REGISTRO */
+async function register(){
+  const username = document.getElementById("reg-user").value;
+  const password = document.getElementById("reg-pass").value;
 
-    sendBtn.addEventListener("click", sendMessage);
-    input.addEventListener("keydown", (e)=> { if (e.key==="Enter") sendMessage(); });
+  const r = await api("/register","POST",{ username, password });
 
-    async function loadMe(){
-      const r = await api("/me");
-      me = r.user;
-      meNameEl.textContent = me ? me.username : "Invitado";
-      mePresenceEl.textContent = me ? "En línea" : "Desconectado";
-      if (me) socket.emit("online", me.id);
-    }
+  if(r.error) return alert(r.error);
 
-    async function loadContacts(){
-      const cs = me ? await api("/contacts") : [];
-      contactsList.innerHTML = "";
-      // global entry
-      const g = document.createElement("div");
-      g.className="item";
-      g.innerHTML = '<div class="meta"><div class="title">Global</div><div class="desc">Chat público</div></div>';
-      g.onclick = ()=> openGlobal();
-      contactsList.appendChild(g);
+  location.reload();
+}
 
-      cs.forEach(c=>{
-        const el = document.createElement("div");
-        el.className = "item";
-        el.innerHTML = `<div style="width:44px"><div class="avatar" style="background:#cdebdc">${c.username[0].toUpperCase()}</div></div>
-                        <div class="meta"><div class="title">${c.username} ${c.online?'<span style="color:#34d859;font-size:12px">●</span>':''}</div>
-                        <div class="desc">${c.online? 'En línea' : 'Desconectado'}</div></div>`;
-        el.onclick = ()=> openPrivate(c.id,c.username);
-        contactsList.appendChild(el);
-      });
-    }
+// Cargar usuario
+async function loadMe(){
+  const r = await api("/me");
+  me = r.user;
 
-    async function loadGlobal(){
-      current = {type:"global"};
-      chatNameEl.textContent = "Global";
-      chatSubEl.textContent = "Chat público";
-      messagesEl.innerHTML = "";
-      const msgs = await api("/messages");
-      msgs.forEach(render);
-      scroll();
-    }
+  if(!me){
+    document.getElementById("auth-box").style.display="flex";
+    document.getElementById("app").style.display="none";
+    return;
+  }
 
-    function render(m){
-      // unify shape for private/group/global messages
-      const el = document.createElement("div");
-      const isMe = (me && (m.user_id === me.id || m.from === me.id));
-      el.className = "msg " + (isMe ? "me":"other");
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.textContent = (m.username || ("User "+(m.from||m.user_id || ""))) + " • " + new Date(m.created_at).toLocaleString();
-      const body = document.createElement("div");
-      body.textContent = m.text || m.message || m.msg || "";
-      el.appendChild(meta);
-      el.appendChild(body);
-      messagesEl.appendChild(el);
-    }
+  document.getElementById("auth-box").style.display="none";
+  document.getElementById("app").style.display="flex";
 
-    function scroll(){ messagesEl.scrollTop = messagesEl.scrollHeight; }
+  document.getElementById("me-name").textContent = me.username;
+  document.getElementById("me-presence").textContent = "En línea";
 
-    async function sendMessage(){
-      const text = input.value.trim();
-      if (!text) return;
-      if (current.type==="global"){
-        const r = await api("/messages","POST",{ text });
-        socket.emit("message", r);
-        render(r);
-      } else if (current.type==="private"){
-        await api("/private/send","POST",{ to: current.withId, text });
-      } else if (current.type==="group"){
-        await api("/groups/send","POST",{ group_id: current.id, text });
-      }
-      input.value="";
-      scroll();
-    }
+  socket.emit("online", me.id);
+}
 
-    function openPrivate(id, name){
-      current = {type:"private", withId:id};
-      chatNameEl.textContent = name;
-      chatSubEl.textContent = "Chat privado";
-      messagesEl.innerHTML = "";
-      api("/private/"+id).then(arr=>{ arr.forEach(render); scroll(); });
-      socket.emit("join_private",{ me: me.id, other: id });
-    }
+/* CONTACTOS */
+async function loadContacts(){
+  const cs = me ? await api("/contacts") : [];
+  const list = document.getElementById("contacts-list");
+  list.innerHTML = "";
 
-    function openGlobal(){ loadGlobal(); socket.emit("join_private",{me:me?me.id:0, other:0}); }
+  let g = document.createElement("div");
+  g.className="item";
+  g.innerHTML = `<div class="meta"><div class="title">Global</div>
+                 <div class="desc">Chat público</div></div>`;
+  g.onclick = openGlobal;
+  list.appendChild(g);
+}
 
-    socket.on("message", (m)=> { if (current.type==="global"){ render(m); scroll(); } });
-    socket.on("private_message", (m)=> { if (current.type==="private" && (m.from===current.withId || m.to===current.withId)){ render(m); scroll(); }});
-    socket.on("group_message", (m)=> { if (current.type==="group" && m.group_id===current.id){ render(m); scroll(); }});
-    socket.on("presence_update", (p)=> { loadContacts(); });
+/* GLOBAL CHAT */
+async function loadGlobal(){
+  current = {type:"global"};
+  document.getElementById("chat-name").textContent="Global";
+  document.getElementById("chat-sub").textContent="Chat público";
 
-    // init
-    (async ()=> {
-      await loadMe();
-      await loadContacts();
-      await loadGlobal();
-    })();
-  </script>
+  const msgs = await api("/messages");
+  const box = document.getElementById("messages");
+  box.innerHTML="";
+
+  msgs.forEach(render);
+}
+
+/* RENDER MENSAJES */
+function render(m){
+  const box = document.getElementById("messages");
+  const el = document.createElement("div");
+  const isMe = me && (m.user_id===me.id || m.from===me.id);
+
+  el.className="msg "+(isMe?"me":"other");
+
+  el.innerHTML = `
+    <div class="meta">${m.username || "User"} • 
+    ${new Date(m.created_at).toLocaleString()}</div>
+    <div>${m.text}</div>
+  `;
+
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ENVIAR */
+async function sendMessage(){
+  let text = document.getElementById("message-input").value;
+  if(!text.trim()) return;
+  
+  const r = await api("/messages","POST",{text});
+  render(r);
+
+  document.getElementById("message-input").value="";
+}
+
+document.getElementById("send-btn").onclick = sendMessage;
+
+/* SOCKET */
+socket.on("message", render);
+
+// INIT
+(async ()=>{
+  await loadMe();
+  await loadContacts();
+  await loadGlobal();
+})();
+</script>
 </body>
 </html>
+
