@@ -1,0 +1,191 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Chat Master - Node</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0f0f12; --panel:#17171b; --muted:#999; --accent:#7b61ff; }
+    body{font-family:Inter, system-ui, Arial; background:var(--bg); color:#fff; margin:0; padding:24px;}
+    .wrap{max-width:960px;margin:0 auto;}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:20px;}
+    header h1{margin:0;font-size:20px;}
+    .panel{background:var(--panel); padding:16px;border-radius:10px;}
+    .grid{display:grid;grid-template-columns:320px 1fr; gap:16px;}
+    .users{display:flex;flex-direction:column;gap:8px;}
+    .messages{height:60vh; overflow:auto; padding:12px; border-radius:8px; background:#0b0b0c;}
+    .msg{margin-bottom:10px;}
+    form{display:flex;gap:8px;margin-top:8px;}
+    input, button{padding:8px;border-radius:8px;border:1px solid #222;background:#fff;color:#000;}
+    .muted{color:var(--muted); font-size:13px;}
+    .hidden{display:none;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Chat Master</h1>
+      <div class="muted">Node + SQLite + Socket.io</div>
+    </header>
+
+    <div id="authPanel" class="panel">
+      <h3>Accede o regístrate</h3>
+      <div id="authError" class="muted"></div>
+      <form id="registerForm">
+        <input id="regUser" placeholder="Usuario (registro)" required />
+        <input id="regPass" type="password" placeholder="Contraseña" required />
+        <button type="submit">Registrarse</button>
+      </form>
+      <hr/>
+      <form id="loginForm">
+        <input id="logUser" placeholder="Usuario (login)" required />
+        <input id="logPass" type="password" placeholder="Contraseña" required />
+        <button type="submit">Iniciar sesión</button>
+      </form>
+    </div>
+
+    <div id="chatArea" class="panel hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <strong id="meName"></strong>
+          <div class="muted">Conectado</div>
+        </div>
+        <button id="logoutBtn">Cerrar sesión</button>
+      </div>
+
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <div class="muted">Usuarios (lista simple)</div>
+          <div class="users" id="usersList"></div>
+        </div>
+        <div>
+          <div class="messages" id="messages"></div>
+          <form id="msgForm">
+            <input id="msgInput" placeholder="Escribe un mensaje..." autocomplete="off" />
+            <button>Enviar</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const authPanel = document.getElementById('authPanel');
+    const chatArea = document.getElementById('chatArea');
+    const registerForm = document.getElementById('registerForm');
+    const loginForm = document.getElementById('loginForm');
+    const authError = document.getElementById('authError');
+    const meName = document.getElementById('meName');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const msgForm = document.getElementById('msgForm');
+    const msgInput = document.getElementById('msgInput');
+    const messagesDiv = document.getElementById('messages');
+    const usersList = document.getElementById('usersList');
+
+    let me = null;
+    let users = {};
+
+    function showError(m){
+      authError.textContent = m;
+      setTimeout(()=> authError.textContent = '', 4000);
+    }
+
+    async function whoami(){
+      const res = await fetch('/api/me');
+      const j = await res.json();
+      if (j.user){ me = j.user; onLogin(); } else { onLogout(); }
+    }
+
+    function onLogin(){
+      authPanel.classList.add('hidden');
+      chatArea.classList.remove('hidden');
+      meName.textContent = me.username;
+      fetchMessages();
+    }
+
+    function onLogout(){
+      authPanel.classList.remove('hidden');
+      chatArea.classList.add('hidden');
+      me = null;
+      messagesDiv.innerHTML = '';
+    }
+
+    registerForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const username = document.getElementById('regUser').value.trim();
+      const password = document.getElementById('regPass').value;
+      const res = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+      const j = await res.json();
+      if (!res.ok) return showError(j.error || 'Error');
+      me = j; onLogin();
+    });
+
+    loginForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const username = document.getElementById('logUser').value.trim();
+      const password = document.getElementById('logPass').value;
+      const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+      const j = await res.json();
+      if (!res.ok) return showError(j.error || 'Error');
+      me = j; onLogin();
+    });
+
+    logoutBtn.addEventListener('click', async ()=>{
+      await fetch('/api/logout', { method:'POST' });
+      onLogout();
+    });
+
+    async function fetchMessages(){
+      const res = await fetch('/api/messages');
+      const msgs = await res.json();
+      messagesDiv.innerHTML = '';
+      msgs.forEach(addMessage);
+    }
+
+    function addMessage(m){
+      const d = document.createElement('div');
+      d.className = 'msg';
+      d.innerHTML = '<strong>' + escapeHtml(m.username) + '</strong>: ' + escapeHtml(m.text) + '<div class="muted" style="font-size:12px">'+ (new Date(m.created_at || Date.now())).toLocaleString() +'</div>';
+      messagesDiv.appendChild(d);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    msgForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      if (!me) return showError('No estás autenticado');
+      const text = msgInput.value.trim();
+      if (!text) return;
+      // send via REST so server can check session
+      const res = await fetch('/api/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
+      if (!res.ok){ const j = await res.json(); return showError(j.error || 'Error al enviar'); }
+      msgInput.value = '';
+    });
+
+    socket.on('message', (m) => {
+      addMessage(m);
+      // add to users list simple
+      users[m.username] = true;
+      renderUsers();
+    });
+
+    function renderUsers(){
+      usersList.innerHTML = '';
+      Object.keys(users).forEach(u => {
+        const el = document.createElement('div');
+        el.textContent = u;
+        usersList.appendChild(el);
+      });
+    }
+
+    function escapeHtml(s){
+      return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[m]; });
+    }
+
+    // initial check
+    whoami();
+  </script>
+</body>
+</html>
