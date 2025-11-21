@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ChatNodo — WhatsApp Style (SPA)</title>
+  <title>ChatNodo — Completo (SPA)</title>
 
   <style>
     :root{
@@ -11,47 +11,58 @@
       --me:#DCF8C6; --them:#ffffff; --header:#075E54; --text:#111827;
       --sidebar:#f6f6f6;
     }
+    [data-theme="dark"]{
+      --bg:#0f1724; --panel:#0b1220; --accent:#2dd4bf; --muted:#93a3b2;
+      --me:#244; --them:#07121a; --header:#021; --text:#e6eef6;
+      --sidebar:#061226;
+    }
     *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif}
     html,body{height:100%;background:var(--bg);color:var(--text)}
     a{color:inherit;text-decoration:none}
 
     /* layout */
     .container{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-    .card{width:100%;max-width:1100px;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.08);overflow:hidden;display:flex}
+    .card{width:100%;max-width:1200px;background:var(--panel);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.08);overflow:hidden;display:flex}
     /* left (sidebar) */
     .sidebar{width:340px;background:var(--sidebar);padding:12px;display:flex;flex-direction:column;gap:12px}
     .brand{display:flex;align-items:center;gap:12px;padding:8px}
     .brand .logo{width:44px;height:44;border-radius:50%;background:linear-gradient(135deg,#cfe9d6,#8fd6a0);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
-    .search input{width:100%;padding:10px;border-radius:20px;border:1px solid #e6e6e6}
+    .search input{width:100%;padding:10px;border-radius:20px;border:1px solid #e6e6e6;background:transparent}
     .profile{display:flex;align-items:center;gap:10px;padding:8px}
-    .me-avatar{width:44px;height:44;border-radius:50%;background:#ddd;display:flex;align-items:center;justify-content:center}
+    .me-avatar{width:56px;height:56;border-radius:50%;background:#ddd;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .me-avatar img{width:100%;height:100%;object-fit:cover}
     .me-info .name{font-weight:700}
+    .me-info .about{font-size:12px;color:var(--muted)}
+    .profile-actions{display:flex;flex-direction:column;gap:6px;margin-left:auto}
     .list{flex:1;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
     .item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
-    .item:hover{background:#f4f7f6}
+    .item:hover{background:rgba(0,0,0,0.03)}
     .meta .title{font-weight:600}
     .meta .desc{font-size:12px;color:var(--muted)}
+    .badge{background:#d33;color:#fff;padding:2px 6px;border-radius:12px;font-size:12px;margin-left:8px}
 
     /* right (chat) */
-    .chat{flex:1;display:flex;flex-direction:column;background:#fff}
-    .chat .head{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #eee;background:linear-gradient(90deg,var(--header),#128C7E);color:#fff}
-    .messages{flex:1;overflow:auto;padding:18px;background:#eaf3ee}
+    .chat{flex:1;display:flex;flex-direction:column;background:var(--panel)}
+    .chat .head{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid rgba(0,0,0,0.06);background:linear-gradient(90deg,var(--header),#128C7E);color:#fff}
+    .messages{flex:1;overflow:auto;padding:18px;background:linear-gradient(180deg, rgba(0,0,0,0.02), transparent),var(--bg)}
     .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,0.03)}
     .msg.me{margin-left:auto;background:var(--me)}
     .msg.other{background:var(--them)}
     .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
-    .composer{display:flex;gap:10px;padding:12px;border-top:1px solid #f0f0f0;align-items:center}
-    .composer input{flex:1;padding:10px;border-radius:20px;border:1px solid #e6e6e6}
+    .composer{display:flex;gap:10px;padding:12px;border-top:1px solid rgba(0,0,0,0.06);align-items:center;background:var(--panel)}
+    .composer input{flex:1;padding:10px;border-radius:20px;border:1px solid #e6e6e6;background:transparent;color:var(--text)}
     .btn{background:var(--header);color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer}
     .btn.ghost{background:transparent;color:var(--header);border:1px solid rgba(255,255,255,0.12)}
     .small{font-size:12px;color:var(--muted)}
 
-    /* auth */
-    #auth-screen{width:100%;max-width:420px;padding:24px}
-    .auth-box{background:#fff;padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.06)}
-    .auth-box input{width:100%;padding:10px;border-radius:8px;border:1px solid #e6e6e6;margin-bottom:10px}
+    /* modals */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:60}
+    .modal{background:var(--panel);padding:16px;border-radius:10px;min-width:320px;max-width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2)}
+    .checkbox-list{max-height:240px;overflow:auto;padding:6px;display:flex;flex-direction:column;gap:6px}
 
-    /* responsive */
+    /* toast */
+    .toast{position:fixed;right:20px;bottom:20px;background:#111;color:#fff;padding:10px 14px;border-radius:8px;z-index:70;box-shadow:0 8px 30px rgba(0,0,0,0.3)}
+
     @media(max-width:900px){
       .card{flex-direction:column}
       .sidebar{width:100%;order:2}
@@ -59,12 +70,12 @@
     }
   </style>
 </head>
-<body>
+<body data-theme="">
   <div class="container" id="root">
 
     <!-- AUTH SCREEN (SPA) -->
     <div id="auth-screen" style="display:none">
-      <div class="auth-box">
+      <div class="auth-box" style="max-width:420px;margin:auto">
         <h2 id="auth-title">Inicia sesión</h2>
 
         <div id="login-form">
@@ -106,10 +117,18 @@
         </div>
 
         <div class="profile">
-          <div class="me-avatar" id="me-avatar">ME</div>
+          <div class="me-avatar" id="me-avatar"><span id="me-avatar-initial">ME</span></div>
           <div class="me-info">
             <div class="name" id="me-name">Invitado</div>
-            <div class="small" id="me-presence">Desconectado</div>
+            <div class="about" id="me-about">Sin descripción</div>
+          </div>
+          <div class="profile-actions">
+            <label style="font-size:12px;cursor:pointer">
+              <input id="avatar-input" type="file" accept="image/*" style="display:none" />
+              <span class="small btn.ghost" id="change-avatar">Cambiar foto</span>
+            </label>
+            <button class="small btn.ghost" id="edit-about">Editar descripción</button>
+            <button class="small btn" id="theme-toggle">🌙</button>
           </div>
         </div>
 
@@ -156,7 +175,22 @@
     </div>
   </div>
 
-  <div id="emoji-picker" style="display:none;position:fixed;right:24px;bottom:80px;background:#fff;padding:10px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.12)">
+  <!-- Modals -->
+  <div id="members-modal" style="display:none" class="modal-backdrop">
+    <div class="modal">
+      <h3>Añadir miembros al grupo</h3>
+      <div class="checkbox-list" id="members-checkboxes"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="members-cancel" class="btn.ghost">Cancelar</button>
+        <button id="members-save" class="btn">Añadir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast-container"></div>
+
+  <div id="emoji-picker" style="display:none;position:fixed;right:24px;bottom:80px;background:var(--panel);padding:10px;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.12)">
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -179,14 +213,17 @@
         opts.body = JSON.stringify(body);
       }
       const res = await fetch("/api" + path, opts);
-      // try parse json
       try { return await res.json(); } catch(e){ return null; }
     }
 
-    /* ===== AUTH UI logic ===== */
+    /* ===== UI refs ===== */
     const authScreen = document.getElementById("auth-screen");
     const appEl = document.getElementById("app");
     const authMsg = document.getElementById("auth-msg");
+    const toastContainer = document.getElementById("toast-container");
+    const membersModal = document.getElementById("members-modal");
+    const membersCheckboxes = document.getElementById("members-checkboxes");
+
     document.getElementById("show-register").addEventListener("click", (e)=>{ e.preventDefault(); toggleAuth(true); });
     document.getElementById("show-login").addEventListener("click", (e)=>{ e.preventDefault(); toggleAuth(false); });
 
@@ -197,6 +234,7 @@
       authMsg.textContent = "";
     }
 
+    /* ===== AUTH ===== */
     async function login(){
       authMsg.textContent = "";
       const username = document.getElementById("login-username").value.trim();
@@ -205,7 +243,6 @@
       const r = await api("/login","POST",{ username, password });
       if(!r) { authMsg.textContent = "Error del servidor"; return; }
       if(r.error){ authMsg.textContent = r.error; return; }
-      // success
       await initAfterAuth();
     }
 
@@ -217,7 +254,6 @@
       const r = await api("/register","POST",{ username, password });
       if(!r) { authMsg.textContent = "Error del servidor"; return; }
       if(r.error){ authMsg.textContent = r.error; return; }
-      // success
       await initAfterAuth();
     }
 
@@ -246,7 +282,19 @@
       const r = await api("/me");
       me = r.user;
       document.getElementById("me-name").textContent = me.username;
-      document.getElementById("me-presence").textContent = "En línea";
+      document.getElementById("me-about").textContent = (me.profile && me.profile.about) ? me.profile.about : "Sin descripción";
+
+      // avatar
+      if(me.profile && me.profile.avatar){
+        const img = document.createElement("img");
+        img.src = me.profile.avatar;
+        const m = document.getElementById("me-avatar");
+        m.innerHTML = "";
+        m.appendChild(img);
+        document.getElementById("me-avatar-initial").style.display = "none";
+      } else {
+        document.getElementById("me-avatar-initial").textContent = me.username[0].toUpperCase();
+      }
 
       socket.emit("online", me.id);
 
@@ -254,9 +302,7 @@
       setupUI();
 
       // load contacts, groups, messages
-      await loadContacts();
-      await loadGroups();
-      await openGlobal();
+      await reloadAll();
     }
 
     /* ===== UI setup ===== */
@@ -264,34 +310,58 @@
       document.getElementById("add-contact-btn").onclick = async ()=>{
         const username = document.getElementById("add-contact-name").value.trim();
         if(!username) return alert("Escribe un nombre de usuario");
-        const r = await api("/add-contact","POST",{ username });
+        // Use friend request flow (server will notify)
+        const r = await api("/friend/request","POST",{ username });
         if(r && r.error) return alert(r.error);
         document.getElementById("add-contact-name").value = "";
-        loadContacts();
+        toast("Solicitud enviada a " + username);
       };
 
       document.getElementById("create-group-btn").onclick = async ()=>{
         const name = document.getElementById("new-group-name").value.trim();
         if(!name) return alert("Nombre requerido");
-        // by default create group with only creator (backend will add creator)
-        const r = await api("/groups/create","POST",{ name, members:[] });
-        if(r && r.error) return alert(r.error);
+        const gr = await api("/groups/create","POST",{ name, members: [] });
+        if(gr && gr.error) return alert(gr.error);
         document.getElementById("new-group-name").value = "";
-        loadGroups();
+        // now open modal to add members
+        openMembersModal(gr.id);
       };
 
       document.getElementById("send-btn").onclick = sendMessage;
       document.getElementById("message-input").addEventListener("keydown", (e)=>{ if(e.key==="Enter") sendMessage(); });
 
-      document.getElementById("emoji-toggle").onclick = ()=>{
+      document.getElementById("emoji-toggle").onclick = ()=> {
         const picker = document.getElementById("emoji-picker");
-        if(picker.style.display === "none" || !picker.style.display) picker.style.display = "block";
-        else picker.style.display = "none";
+        picker.style.display = (picker.style.display==="none"||!picker.style.display) ? "block" : "none";
       };
 
       document.getElementById("logout-btn").onclick = async ()=>{
         await api("/logout","POST");
         location.reload();
+      };
+
+      // avatar change
+      document.getElementById("change-avatar").onclick = ()=> document.getElementById("avatar-input").click();
+      document.getElementById("avatar-input").addEventListener("change", async (e)=>{
+        const f = e.target.files[0];
+        if(!f) return;
+        const reader = new FileReader();
+        reader.onload = async ()=> {
+          const data = reader.result; // base64
+          await api("/me/profile","POST",{ avatar: data });
+          // refresh profile
+          await initAfterAuth();
+          toast("Avatar actualizado");
+        };
+        reader.readAsDataURL(f);
+      });
+
+      document.getElementById("edit-about").onclick = async ()=>{
+        const about = prompt("Escribe tu descripción corta (estado):", me.profile ? me.profile.about || "" : "");
+        if(about === null) return;
+        await api("/me/profile","POST",{ about });
+        await initAfterAuth();
+        toast("Descripción actualizada");
       };
 
       // build emoji picker
@@ -309,6 +379,17 @@
         };
         picker.appendChild(d);
       });
+
+      // theme toggle
+      const themeBtn = document.getElementById("theme-toggle");
+      themeBtn.onclick = ()=>{
+        const root = document.body;
+        const dark = root.getAttribute("data-theme") === "dark";
+        root.setAttribute("data-theme", dark ? "" : "dark");
+        localStorage.setItem("chatnodo_dark", dark ? "0" : "1");
+      };
+      // apply saved theme
+      if(localStorage.getItem("chatnodo_dark")==="1") document.body.setAttribute("data-theme","dark");
     }
 
     /* ===== Contacts & Groups ===== */
@@ -317,11 +398,13 @@
       const list = document.getElementById("contacts-list");
       list.innerHTML = "";
 
-      // Global entry
+      // global entry with unread check
+      const unread = await api("/unread");
+      const globalUnread = unread ? unread.global || 0 : 0;
       const g = document.createElement("div");
       g.className = "item";
       g.innerHTML = `<div style="width:40px"><div class="me-avatar">G</div></div>
-        <div class="meta"><div class="title">Global</div><div class="desc">Chat público</div></div>`;
+        <div style="flex:1"><div class="title">Global ${globalUnread?('<span class="badge">'+globalUnread+'</span>'):''}</div><div class="desc">Chat público</div></div>`;
       g.onclick = ()=> openGlobal();
       list.appendChild(g);
 
@@ -333,7 +416,6 @@
       grpTitle.textContent = "Grupos";
       list.appendChild(grpTitle);
 
-      // groups will be appended after loadGroups() populates
       // contacts header
       const contTitle = document.createElement("div");
       contTitle.style.marginTop="8px";
@@ -359,24 +441,57 @@
     async function loadGroups(){
       const groups = await api("/groups");
       if(!Array.isArray(groups)) return;
-      // find insertion point (after "Grupos" label)
       const list = document.getElementById("contacts-list");
-      // remove existing group items (class group-item)
       Array.from(list.querySelectorAll(".group-item")).forEach(n=>n.remove());
 
+      const unread = await api("/unread");
       groups.forEach(g=>{
+        const gid = g.id;
+        const groupUnread = unread && unread.groups && unread.groups[gid] ? unread.groups[gid] : 0;
         const el = document.createElement("div");
         el.className = "item group-item";
         el.innerHTML = `<div style="width:40px"><div class="me-avatar">#</div></div>
-          <div style="flex:1"><div class="title">${g.name}</div><div class="desc">${g.members.length} miembros</div></div>`;
-        el.onclick = ()=> openGroup(g.id, g.name);
-        // insert before contacts header (find contacts header)
-        // find index of contacts header
+          <div style="flex:1"><div class="title">${g.name} ${groupUnread?('<span class="badge">'+groupUnread+'</span>'):''}</div><div class="desc">${g.members.length} miembros</div></div>
+          <div><button class="btn" onclick="openMembersModal(${g.id}, event)">Miembros</button></div>`;
         const contTitle = Array.from(list.children).find(ch => ch.textContent === "Contactos");
         if(contTitle) list.insertBefore(el, contTitle);
         else list.appendChild(el);
       });
     }
+
+    /* ===== Members modal handling ===== */
+    let currentGroupForModal = null;
+    async function openMembersModal(groupId, evt){
+      if(evt) evt.stopPropagation();
+      currentGroupForModal = groupId;
+      membersCheckboxes.innerHTML = "";
+      // load contacts to choose from
+      const contacts = await api("/contacts");
+      contacts.forEach(c=>{
+        const id = c.id;
+        const label = document.createElement("label");
+        label.style.display="flex"; label.style.alignItems="center"; label.style.gap="8px";
+        const chk = document.createElement("input");
+        chk.type = "checkbox"; chk.value = id;
+        label.appendChild(chk);
+        const span = document.createElement("span"); span.textContent = c.username;
+        label.appendChild(span);
+        membersCheckboxes.appendChild(label);
+      });
+      membersModal.style.display = "flex";
+    }
+    document.getElementById("members-cancel").onclick = ()=> { membersModal.style.display="none"; currentGroupForModal=null; };
+    document.getElementById("members-save").onclick = async ()=>{
+      const checks = Array.from(membersCheckboxes.querySelectorAll("input[type=checkbox]:checked")).map(x=>parseInt(x.value));
+      if(checks.length===0){ membersModal.style.display="none"; currentGroupForModal=null; return; }
+      for(const memberId of checks){
+        await api("/groups/add-member","POST",{ group_id: currentGroupForModal, member_id: memberId });
+      }
+      membersModal.style.display="none";
+      currentGroupForModal = null;
+      toast("Miembros añadidos");
+      loadGroups();
+    };
 
     /* ===== CHAT operations ===== */
     async function openGlobal(){
@@ -386,9 +501,11 @@
       document.getElementById("messages").innerHTML = "";
       const msgs = await api("/messages");
       if(Array.isArray(msgs)) msgs.forEach(renderMessage);
-      scrollToBottom();
-      // join a "global" room if server supports (optional)
+      // mark as read
+      await api("/messages/mark-read","POST",{});
+      await updateUnreadUI();
       socket.emit("join_group", 0);
+      scrollToBottom();
     }
 
     async function openPrivate(userId, username){
@@ -398,8 +515,11 @@
       document.getElementById("messages").innerHTML = "";
       const msgs = await api("/private/" + userId);
       if(Array.isArray(msgs)) msgs.forEach(renderMessage);
-      scrollToBottom();
+      // mark as read
+      await api("/private/mark-read","POST",{ withId: userId });
+      await updateUnreadUI();
       socket.emit("join_private", { me: me.id, other: userId });
+      scrollToBottom();
     }
 
     async function openGroup(groupId, groupName){
@@ -409,8 +529,11 @@
       document.getElementById("messages").innerHTML = "";
       const msgs = await api("/groups/messages/" + groupId);
       if(Array.isArray(msgs)) msgs.forEach(renderMessage);
-      scrollToBottom();
+      // mark as read
+      await api("/groups/mark-read","POST",{ group_id: groupId });
+      await updateUnreadUI();
       socket.emit("join_group", groupId);
+      scrollToBottom();
     }
 
     /* Render message (single function used by sockets) */
@@ -432,13 +555,11 @@
       input.value = "";
       if(currentChat.type === "global"){
         await api("/messages","POST",{ text });
-        // do NOT render immediately; server will emit and socket will render
       } else if(currentChat.type === "private"){
         await api("/private/send","POST",{ to: currentChat.id, text });
       } else if(currentChat.type === "group"){
         await api("/groups/send","POST",{ group_id: currentChat.id, text });
       }
-      // scroll will happen when socket receives
     }
 
     /* scroll util */
@@ -460,46 +581,79 @@
       console.log("socket connected");
     });
 
-    // Global messages
     socket.on("message", (m)=>{
-      // only render if current chat is global
       if(currentChat.type === "global"){
         renderMessage(m);
         scrollToBottom();
       }
+      updateUnreadUI();
     });
 
-    // Private messages
     socket.on("private_message", (m)=>{
-      // render if we're in that private chat OR if the message is FROM/TO me (to notify)
       const isRelevant = (currentChat.type === "private" && (m.from === currentChat.id || m.to === currentChat.id));
       if(isRelevant) {
         renderMessage(m);
         scrollToBottom();
       } else {
-        // optionally flash contact
-        loadContacts();
+        updateUnreadUI();
+        toast("Nuevo mensaje privado");
       }
     });
 
-    // Group messages
     socket.on("group_message", (m)=>{
       if(currentChat.type === "group" && m.group_id === currentChat.id){
         renderMessage(m);
         scrollToBottom();
       } else {
-        loadGroups();
+        updateUnreadUI();
+        toast("Nuevo mensaje en grupo");
       }
     });
 
-    // Presence updates
     socket.on("presence_update", (p)=>{
       loadContacts();
     });
 
-    /* ===== helper: update user count (simple) ===== */
+    socket.on("friend_request", (p)=>{
+      if(p.to === me.id){
+        toast("Nueva solicitud de amistad de " + (p.from && p.from.username ? p.from.username : "alguien"));
+      }
+    });
+
+    socket.on("friend_accepted", (p)=>{
+      loadContacts();
+      toast("Nueva amistad! ID: " + p.other);
+    });
+
+    socket.on("unread_update", ()=>{
+      updateUnreadUI();
+    });
+
+    socket.on("group_member_added", ()=>{
+      loadGroups();
+      toast("Te añadieron a un grupo");
+    });
+
+    /* ===== unread UI update ===== */
+    async function updateUnreadUI(){
+      const unread = await api("/unread");
+      // just reload contacts/groups (badges are generated there)
+      await loadContacts();
+      await loadGroups();
+    }
+
+    /* toast util */
+    function toast(msg, time=3000){
+      const t = document.createElement("div");
+      t.className = "toast";
+      t.textContent = msg;
+      toastContainer.appendChild(t);
+      setTimeout(()=> t.remove(), time);
+    }
+
+    /* helper: update user count (simple) */
     async function updateUserCount(){
-      const cs = await api("/contacts"); // contacts includes online flags
+      const cs = await api("/contacts");
       const online = (cs || []).filter(x => x.online).length;
       document.getElementById("user-count").textContent = online + " online";
     }
@@ -507,13 +661,11 @@
     /* ===== init ===== */
     (async ()=>{
       await checkSession();
-      // when in app, periodically update presence & counts
-      setInterval(()=>{ if(me) { loadContacts(); updateUserCount(); } }, 5000);
+      setInterval(()=>{ if(me){ loadContacts(); loadGroups(); updateUserCount(); } }, 5000);
     })();
 
-    /* Expose login/register in global scope for inline onclick (if needed) */
-    window.login = login;
-    window.register = register;
+    /* expose some functions for inline onclicks */
+    window.openMembersModal = openMembersModal;
 
   </script>
 </body>
