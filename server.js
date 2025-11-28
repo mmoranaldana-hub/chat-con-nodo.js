@@ -24,11 +24,14 @@ const io = new Server(server);
 
 const PORT = process.env.PORT || 8080;
 
-const DATA_DIR = path.join(__dirname, "public", "data");
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+const DATA_DIR = path.join(__dirname, "data");
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
 const DB_PATH = path.join(DATA_DIR, "database.sqlite");
-const db = new sqlite3.Database(DB_PATH);
+console.log("USING SQLITE DB AT:", DB_PATH);
+
 
 // Helpers promesas para sqlite
 const dbRun = (sql, params = []) =>
