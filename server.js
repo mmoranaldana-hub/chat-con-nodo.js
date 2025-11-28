@@ -24,7 +24,7 @@ const io = new Server(server);
 
 const PORT = process.env.PORT || 8080;
 
-const DATA_DIR = path.join(__dirname, "data");
+const DATA_DIR = path.join(__dirname, "public", "data");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 const DB_PATH = path.join(DATA_DIR, "database.sqlite");
