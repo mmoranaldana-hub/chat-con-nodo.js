@@ -1,6 +1,5 @@
 // server.js
 // Chat Nodo — servidor completo (JSON files, sockets, presencia, perfiles, unread, friend requests)
-// Versión corregida: validaciones añadidas, emisiones adicionales, pequeñas mejoras.
 
 const express = require("express");
 const path = require("path");
@@ -44,11 +43,10 @@ ensureFile(friendRequestsFile, []);
 // read/write helpers
 function load(file) {
   try { return JSON.parse(fs.readFileSync(file)); }
-  catch(e){ console.error("Failed to read", file, e); return []; }
+  catch(e){ return []; }
 }
 function save(file, data) {
-  try { fs.writeFileSync(file, JSON.stringify(data, null, 2)); }
-  catch(e){ console.error("Failed to write", file, e); }
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
 // middleware
@@ -64,7 +62,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production", // Render sets NODE_ENV=production and handles https
     sameSite: "lax",
     maxAge: 1000 * 60 * 60 * 24 * 7
   }
@@ -75,72 +73,57 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: "Unauthorized" });
 }
 
-// helper to get persistent user object from disk by session
-function getPersistentUser(req) {
-  if (!req.session || !req.session.user) return null;
-  const users = load(usersFile);
-  return users.find(u => u.id === req.session.user.id) || null;
-}
-
 // ---------- AUTH ----------
 app.post("/api/register", async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
 
-    const users = load(usersFile);
-    if (users.find(u => u.username === username)) return res.status(400).json({ error: "Username already exists" });
+  const users = load(usersFile);
+  if (users.find(u => u.username === username)) return res.status(400).json({ error: "Username already exists" });
 
-    const hash = await bcrypt.hash(password, 10);
-    const user = {
-      id: Date.now(),
-      username,
-      password_hash: hash,
-      contacts: [],
-      online: false,
-      avatar: null,
-      description: "",
-      sockets: 0
-    };
+  const hash = await bcrypt.hash(password, 10);
+  const user = {
+    id: Date.now(),
+    username,
+    password_hash: hash,
+    contacts: [],
+    online: false,
+    avatar: null,        // Data URL or null
+    description: "",
+    sockets: 0           // in-file counter (kept for reference)
+  };
 
-    users.push(user);
-    save(usersFile, users);
+  users.push(user);
+  save(usersFile, users);
 
-    req.session.user = { id: user.id, username: user.username };
-    res.json(req.session.user);
-  } catch (err) {
-    console.error("Register error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  req.session.user = { id: user.id, username: user.username };
+  res.json(req.session.user);
 });
 
 app.post("/api/login", async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
 
-    const users = load(usersFile);
-    const user = users.find(u => u.username === username);
-    if (!user) return res.status(400).json({ error: "Invalid credentials" });
+  const users = load(usersFile);
+  const user = users.find(u => u.username === username);
+  if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(400).json({ error: "Invalid credentials" });
+  const ok = await bcrypt.compare(password, user.password_hash);
+  if (!ok) return res.status(400).json({ error: "Invalid credentials" });
 
-    req.session.user = { id: user.id, username: user.username };
-    res.json(req.session.user);
-  } catch (err) {
-    console.error("Login error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  req.session.user = { id: user.id, username: user.username };
+  res.json(req.session.user);
 });
 
 app.post("/api/logout", requireAuth, (req, res) => {
+  // on logout, we don't change persistent online flag here (socket disconnect will handle)
   req.session.destroy(() => res.json({ ok: true }));
 });
 
 app.get("/api/me", (req, res) => {
   const u = req.session.user || null;
   if (!u) return res.json({ user: null });
+  // return profile data from disk
   const users = load(usersFile);
   const user = users.find(x => x.id === u.id);
   if (!user) return res.json({ user: null });
@@ -155,58 +138,48 @@ app.get("/api/me", (req, res) => {
 
 // update profile: description, avatar (base64 data URL), display name optional
 app.post("/api/me/profile", requireAuth, (req, res) => {
-  try {
-    const { description, avatar } = req.body || {};
-    const users = load(usersFile);
-    const user = users.find(x => x.id === req.session.user.id);
-    if (!user) return res.status(400).json({ error: "User not found" });
+  const { description, avatar } = req.body || {};
+  const users = load(usersFile);
+  const user = users.find(x => x.id === req.session.user.id);
+  if (!user) return res.status(400).json({ error: "User not found" });
 
-    if (typeof description === "string") user.description = description;
-    if (avatar === null) user.avatar = null;
-    else if (typeof avatar === "string" && avatar.startsWith("data:")) user.avatar = avatar;
+  if (typeof description === "string") user.description = description;
+  // avatar can be null to clear, or a data URL string (validate basic)
+  if (avatar === null) user.avatar = null;
+  else if (typeof avatar === "string" && avatar.startsWith("data:")) user.avatar = avatar;
 
-    save(usersFile, users);
-    res.json({ ok: true, avatar: user.avatar, description: user.description });
-  } catch (err) {
-    console.error("Profile update error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  save(usersFile, users);
+  res.json({ ok: true, avatar: user.avatar, description: user.description });
 });
 
 // ---------- FRIEND REQUESTS ----------
 app.post("/api/friend/request", requireAuth, (req, res) => {
-  try {
-    const { to } = req.body || {};
-    if (!to) return res.status(400).json({ error: "Missing 'to' username" });
+  const { to } = req.body || {};
+  if (!to) return res.status(400).json({ error: "Missing 'to' username" });
 
-    const users = load(usersFile);
-    const target = users.find(u => u.username === to);
-    const me = users.find(u => u.id === req.session.user.id);
-    if (!target) return res.status(400).json({ error: "User not found" });
-    if (!me) return res.status(400).json({ error: "Authenticated user not found" });
-    if (me.id === target.id) return res.status(400).json({ error: "Cannot add yourself" });
-    if (me.contacts.includes(target.id)) return res.status(400).json({ error: "Already contact" });
+  const users = load(usersFile);
+  const target = users.find(u => u.username === to);
+  const me = users.find(u => u.id === req.session.user.id);
+  if (!target) return res.status(400).json({ error: "User not found" });
+  if (me.id === target.id) return res.status(400).json({ error: "Cannot add yourself" });
+  if (me.contacts.includes(target.id)) return res.status(400).json({ error: "Already contact" });
 
-    const requests = load(friendRequestsFile);
-    const exist = requests.find(r => r.from === me.id && r.to === target.id);
-    if (exist) return res.status(400).json({ error: "Request already sent" });
+  const requests = load(friendRequestsFile);
+  const exist = requests.find(r => r.from === me.id && r.to === target.id);
+  if (exist) return res.status(400).json({ error: "Request already sent" });
 
-    const newReq = { id: Date.now(), from: me.id, to: target.id, created_at: new Date().toISOString() };
-    requests.push(newReq);
-    save(friendRequestsFile, requests);
+  requests.push({ id: Date.now(), from: me.id, to: target.id, created_at: new Date().toISOString() });
+  save(friendRequestsFile, requests);
 
-    // notify via socket
-    io.emit("friend_request", { fromId: me.id, fromName: me.username, toId: target.id });
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Friend request error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  // notify via socket
+  io.emit("friend_request", { fromId: me.id, fromName: me.username, toId: target.id });
+  res.json({ ok: true });
 });
 
 app.get("/api/friend/requests", requireAuth, (req, res) => {
   const meId = req.session.user.id;
   const requests = load(friendRequestsFile).filter(r => r.to === meId);
+  // attach sender name
   const users = load(usersFile);
   const detailed = requests.map(r => {
     const from = users.find(u => u.id === r.from);
@@ -216,57 +189,44 @@ app.get("/api/friend/requests", requireAuth, (req, res) => {
 });
 
 app.post("/api/friend/accept", requireAuth, (req, res) => {
-  try {
-    const { requestId } = req.body || {};
-    if (!requestId) return res.status(400).json({ error: "Missing requestId" });
+  const { requestId } = req.body || {};
+  if (!requestId) return res.status(400).json({ error: "Missing requestId" });
 
-    let requests = load(friendRequestsFile);
-    const rIdx = requests.findIndex(r => r.id === requestId && r.to === req.session.user.id);
-    if (rIdx === -1) return res.status(400).json({ error: "Request not found" });
+  let requests = load(friendRequestsFile);
+  const rIdx = requests.findIndex(r => r.id === requestId && r.to === req.session.user.id);
+  if (rIdx === -1) return res.status(400).json({ error: "Request not found" });
 
-    const reqObj = requests[rIdx];
-    requests.splice(rIdx,1);
-    save(friendRequestsFile, requests);
+  const reqObj = requests[rIdx];
+  requests.splice(rIdx,1);
+  save(friendRequestsFile, requests);
 
-    const users = load(usersFile);
-    const a = users.find(u => u.id === reqObj.from);
-    const b = users.find(u => u.id === reqObj.to);
-    if (a && !a.contacts.includes(b.id)) a.contacts.push(b.id);
-    if (b && !b.contacts.includes(a.id)) b.contacts.push(a.id);
-    save(usersFile, users);
+  // add to contacts both sides
+  const users = load(usersFile);
+  const a = users.find(u => u.id === reqObj.from);
+  const b = users.find(u => u.id === reqObj.to);
+  if (a && !a.contacts.includes(b.id)) a.contacts.push(b.id);
+  if (b && !b.contacts.includes(a.id)) b.contacts.push(a.id);
+  save(usersFile, users);
 
-    io.emit("friend_accepted", { from: reqObj.from, to: reqObj.to });
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Friend accept error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  // notify
+  io.emit("friend_accepted", { from: reqObj.from, to: reqObj.to });
+  res.json({ ok: true });
 });
 
 // ---------- CONTACTS ----------
 app.post("/api/add-contact", requireAuth, (req, res) => {
-  try {
-    const { username } = req.body || {};
-    if (!username) return res.status(400).json({ error: "Missing username" });
+  const { username } = req.body || {};
+  if (!username) return res.status(400).json({ error: "Missing username" });
 
-    const users = load(usersFile);
-    const me = users.find(u => u.id === req.session.user.id);
-    const other = users.find(u => u.username === username);
-    if (!me) return res.status(400).json({ error: "Authenticated user not found" });
-    if (!other) return res.status(400).json({ error: "No existe ese usuario" });
-    if (me.contacts.includes(other.id)) return res.status(400).json({ error: "Ya es tu contacto" });
+  const users = load(usersFile);
+  const me = users.find(u => u.id === req.session.user.id);
+  const other = users.find(u => u.username === username);
+  if (!other) return res.status(400).json({ error: "No existe ese usuario" });
+  if (me.contacts.includes(other.id)) return res.status(400).json({ error: "Ya es tu contacto" });
 
-    me.contacts.push(other.id);
-    save(usersFile, users);
-
-    // notify interested parties (optional)
-    io.emit("contact_added", { by: me.id, contact: { id: other.id, username: other.username } });
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Add contact error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  me.contacts.push(other.id);
+  save(usersFile, users);
+  res.json({ ok: true });
 });
 
 app.get("/api/contacts", requireAuth, (req, res) => {
@@ -287,269 +247,231 @@ app.get("/api/messages", (req, res) => {
 });
 
 app.post("/api/messages", requireAuth, (req, res) => {
-  try {
-    const text = (req.body && req.body.text) || "";
-    if (!text) return res.status(400).json({ error: "Missing text" });
+  const text = (req.body && req.body.text) || "";
+  if (!text) return res.status(400).json({ error: "Missing text" });
 
-    const user = req.session.user;
-    const msgs = load(messagesFile);
-    const msg = {
-      id: Date.now(),
-      user_id: user.id,
-      username: user.username,
-      text,
-      created_at: new Date().toISOString()
-    };
-    msgs.push(msg);
-    save(messagesFile, msgs);
-    io.emit("message", msg);
-    res.json(msg);
-  } catch (err) {
-    console.error("Post global message error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  const user = req.session.user;
+  const msgs = load(messagesFile);
+  const msg = {
+    id: Date.now(),
+    user_id: user.id,
+    username: user.username,
+    text,
+    created_at: new Date().toISOString()
+  };
+  msgs.push(msg);
+  save(messagesFile, msgs);
+  io.emit("message", msg);
+  res.json(msg);
 });
 
 // ---------- PRIVATE MESSAGES (with read_by) ----------
 app.post("/api/private/send", requireAuth, (req, res) => {
-  try {
-    const { to, text } = req.body || {};
-    if (!to || !text) return res.status(400).json({ error: "Missing to/text" });
+  const { to, text } = req.body || {};
+  if (!to || !text) return res.status(400).json({ error: "Missing to/text" });
 
-    const toId = parseInt(to);
-    const msgs = load(privateMessagesFile);
-    const msg = {
-      id: Date.now(),
-      from: req.session.user.id,
-      to: toId,
-      text,
-      created_at: new Date().toISOString(),
-      read_by: [ req.session.user.id ] // sender has "read"
-    };
-    msgs.push(msg);
-    save(privateMessagesFile, msgs);
+  const msgs = load(privateMessagesFile);
+  const msg = {
+    id: Date.now(),
+    from: req.session.user.id,
+    to: parseInt(to),
+    text,
+    created_at: new Date().toISOString(),
+    read_by: [ req.session.user.id ] // sender has "read"
+  };
+  msgs.push(msg);
+  save(privateMessagesFile, msgs);
 
-    // emit to both users' rooms (rooms are joined by client)
-    io.to(`pm-${msg.from}-${msg.to}`).emit("private_message", msg);
-    io.to(`pm-${msg.to}-${msg.from}`).emit("private_message", msg);
-    res.json(msg);
-  } catch (err) {
-    console.error("Private send error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  // emit to both users' rooms
+  io.to(`pm-${msg.from}-${msg.to}`).emit("private_message", msg);
+  io.to(`pm-${msg.to}-${msg.from}`).emit("private_message", msg);
+  res.json(msg);
 });
 
 app.get("/api/private/:withId", requireAuth, (req, res) => {
-  try {
-    const withId = parseInt(req.params.withId);
-    let msgs = load(privateMessagesFile);
+  const withId = parseInt(req.params.withId);
+  let msgs = load(privateMessagesFile);
 
-    const filtered = msgs.filter(m =>
-      (m.from === req.session.user.id && m.to === withId) ||
-      (m.from === withId && m.to === req.session.user.id)
-    );
+  const filtered = msgs.filter(m =>
+    (m.from === req.session.user.id && m.to === withId) ||
+    (m.from === withId && m.to === req.session.user.id)
+  );
 
-    // mark unread -> read for current user
-    let changed = false;
-    filtered.forEach(m => {
-      if (!m.read_by) m.read_by = [];
-      if (!m.read_by.includes(req.session.user.id)) {
-        m.read_by.push(req.session.user.id);
-        changed = true;
-      }
-    });
-    if (changed) {
-      const all = load(privateMessagesFile);
-      filtered.forEach(f => {
-        const idx = all.findIndex(x => x.id === f.id);
-        if (idx !== -1) all[idx] = f;
-      });
-      save(privateMessagesFile, all);
+  // mark unread -> read for current user
+  let changed = false;
+  filtered.forEach(m => {
+    if (!m.read_by) m.read_by = [];
+    if (!m.read_by.includes(req.session.user.id)) {
+      m.read_by.push(req.session.user.id);
+      changed = true;
     }
-
-    res.json(filtered);
-  } catch (err) {
-    console.error("Get private messages error", err);
-    res.status(500).json({ error: "Server error" });
+  });
+  if (changed) {
+    // persist changes
+    const all = load(privateMessagesFile);
+    // merge back (simple replace by id)
+    filtered.forEach(f => {
+      const idx = all.findIndex(x => x.id === f.id);
+      if (idx !== -1) all[idx] = f;
+    });
+    save(privateMessagesFile, all);
   }
+
+  res.json(filtered);
 });
 
 app.post("/api/private/mark-read", requireAuth, (req, res) => {
-  try {
-    const { withId } = req.body || {};
-    if (!withId) return res.status(400).json({ error: "Missing withId" });
-    const myId = req.session.user.id;
+  const { withId } = req.body || {};
+  if (!withId) return res.status(400).json({ error: "Missing withId" });
+  const myId = req.session.user.id;
 
-    let msgs = load(privateMessagesFile);
-    let changed = false;
-    msgs.forEach(m => {
-      if ((m.from === parseInt(withId) && m.to === myId) || (m.from === myId && m.to === parseInt(withId))) {
-        if (!m.read_by) m.read_by = [];
-        if (!m.read_by.includes(myId)) { m.read_by.push(myId); changed = true; }
-      }
-    });
-    if (changed) save(privateMessagesFile, msgs);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Mark read error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  let msgs = load(privateMessagesFile);
+  let changed = false;
+  msgs.forEach(m => {
+    if ((m.from === parseInt(withId) && m.to === myId) || (m.from === myId && m.to === parseInt(withId))) {
+      if (!m.read_by) m.read_by = [];
+      if (!m.read_by.includes(myId)) { m.read_by.push(myId); changed = true; }
+    }
+  });
+  if (changed) save(privateMessagesFile, msgs);
+  res.json({ ok: true });
 });
 
 // ---------- GROUPS ----------
 app.post("/api/groups/create", requireAuth, (req, res) => {
-  try {
-    const { name, members } = req.body || {};
-    if (!name) return res.status(400).json({ error: "Missing group name" });
+  const { name, members } = req.body || {};
+  if (!name) return res.status(400).json({ error: "Missing group name" });
 
-    const groups = load(groupsFile);
-    const group = {
-      id: Date.now(),
-      name,
-      members: Array.isArray(members) ? members.map(Number) : [],
-      created_by: req.session.user.id
-    };
-    // ensure creator is in members
-    if (!group.members.includes(req.session.user.id)) group.members.push(req.session.user.id);
+  const groups = load(groupsFile);
+  const group = {
+    id: Date.now(),
+    name,
+    members: Array.isArray(members) ? members.map(Number) : [],
+    created_by: req.session.user.id
+  };
+  // ensure creator is in members
+  if (!group.members.includes(req.session.user.id)) group.members.push(req.session.user.id);
 
-    groups.push(group);
-    save(groupsFile, groups);
+  groups.push(group);
+  save(groupsFile, groups);
 
-    // notify clients that a new group was created (optional)
-    io.emit("group_created", group);
-
-    res.json(group);
-  } catch (err) {
-    console.error("Create group error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  res.json(group);
 });
 
 // add member to group
 app.post("/api/groups/add-member", requireAuth, (req, res) => {
-  try {
-    const { group_id, username } = req.body || {};
-    if (!group_id || !username) return res.status(400).json({ error: "Missing group_id/username" });
+  const { group_id, username } = req.body || {};
+  if (!group_id || !username) return res.status(400).json({ error: "Missing group_id/username" });
 
-    const groups = load(groupsFile);
-    const users = load(usersFile);
-    const g = groups.find(x => x.id === parseInt(group_id));
-    if (!g) return res.status(400).json({ error: "Group not found" });
+  const groups = load(groupsFile);
+  const users = load(usersFile);
+  const g = groups.find(x => x.id === parseInt(group_id));
+  if (!g) return res.status(400).json({ error: "Group not found" });
 
-    if (!g.members.includes(req.session.user.id)) return res.status(403).json({ error: "Not a member" });
+  // ensure requester is member of group
+  if (!g.members.includes(req.session.user.id)) return res.status(403).json({ error: "Not a member" });
 
-    const u = users.find(x => x.username === username);
-    if (!u) return res.status(400).json({ error: "User not found" });
-    if (!g.members.includes(u.id)) g.members.push(u.id);
+  const u = users.find(x => x.username === username);
+  if (!u) return res.status(400).json({ error: "User not found" });
+  if (!g.members.includes(u.id)) g.members.push(u.id);
 
-    save(groupsFile, groups);
-    io.to(`group-${g.id}`).emit("group_member_added", { group_id: g.id, user: { id: u.id, username: u.username } });
-    res.json({ ok: true, group: g });
-  } catch (err) {
-    console.error("Add member error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  save(groupsFile, groups);
+  io.to(`group-${g.id}`).emit("group_member_added", { group_id: g.id, user: { id: u.id, username: u.username } });
+  res.json({ ok: true, group: g });
 });
 
 app.get("/api/groups", requireAuth, (req, res) => {
-  try {
-    const groups = load(groupsFile);
-    const uid = req.session.user.id;
-    const my = groups.filter(g => g.members.includes(uid));
-    res.json(my);
-  } catch (err) {
-    console.error("Get groups error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  const groups = load(groupsFile);
+  const uid = req.session.user.id;
+  const my = groups.filter(g => g.members.includes(uid));
+  res.json(my);
 });
 
 app.post("/api/groups/send", requireAuth, (req, res) => {
-  try {
-    const { group_id, text } = req.body || {};
-    if (!group_id || !text) return res.status(400).json({ error: "Missing group_id/text" });
+  const { group_id, text } = req.body || {};
+  if (!group_id || !text) return res.status(400).json({ error: "Missing group_id/text" });
 
-    const msgs = load(groupMessagesFile);
-    const msg = {
-      id: Date.now(),
-      group_id: parseInt(group_id),
-      from: req.session.user.id,
-      text,
-      created_at: new Date().toISOString(),
-      read_by: [ req.session.user.id ]
-    };
-    msgs.push(msg);
-    save(groupMessagesFile, msgs);
+  const msgs = load(groupMessagesFile);
+  const msg = {
+    id: Date.now(),
+    group_id: parseInt(group_id),
+    from: req.session.user.id,
+    text,
+    created_at: new Date().toISOString(),
+    read_by: [ req.session.user.id ]
+  };
+  msgs.push(msg);
+  save(groupMessagesFile, msgs);
 
-    io.to(`group-${group_id}`).emit("group_message", msg);
-    res.json(msg);
-  } catch (err) {
-    console.error("Group send error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  io.to(`group-${group_id}`).emit("group_message", msg);
+  res.json(msg);
 });
 
 app.get("/api/groups/messages/:id", requireAuth, (req, res) => {
-  try {
-    const gid = parseInt(req.params.id);
-    let msgs = load(groupMessagesFile);
-    const filtered = msgs.filter(m => m.group_id === gid);
-    let changed = false;
-    filtered.forEach(m => {
-      if (!m.read_by) m.read_by = [];
-      if (!m.read_by.includes(req.session.user.id)) { m.read_by.push(req.session.user.id); changed = true; }
+  const gid = parseInt(req.params.id);
+  let msgs = load(groupMessagesFile);
+  const filtered = msgs.filter(m => m.group_id === gid);
+  // mark read_by for current user
+  let changed = false;
+  filtered.forEach(m => {
+    if (!m.read_by) m.read_by = [];
+    if (!m.read_by.includes(req.session.user.id)) { m.read_by.push(req.session.user.id); changed = true; }
+  });
+  if (changed) {
+    // merge back
+    const all = load(groupMessagesFile);
+    filtered.forEach(f => {
+      const idx = all.findIndex(x => x.id === f.id);
+      if (idx !== -1) all[idx] = f;
     });
-    if (changed) {
-      const all = load(groupMessagesFile);
-      filtered.forEach(f => {
-        const idx = all.findIndex(x => x.id === f.id);
-        if (idx !== -1) all[idx] = f;
-      });
-      save(groupMessagesFile, all);
-    }
-    res.json(filtered);
-  } catch (err) {
-    console.error("Get group messages error", err);
-    res.status(500).json({ error: "Server error" });
+    save(groupMessagesFile, all);
   }
+  res.json(filtered);
 });
 
 // ---------- UNREAD COUNTS ----------
 app.get("/api/unread", requireAuth, (req, res) => {
-  try {
-    const myId = req.session.user.id;
-    const priv = load(privateMessagesFile);
-    const groups = load(groupMessagesFile);
+  const myId = req.session.user.id;
+  const priv = load(privateMessagesFile);
+  const groups = load(groupMessagesFile);
+  const users = load(usersFile);
 
-    const privateCounts = {};
-    priv.forEach(m => {
-      const other = (m.from === myId) ? m.to : m.from;
-      if (!privateCounts[other]) privateCounts[other] = 0;
-      if (!m.read_by || !m.read_by.includes(myId)) {
-        if (m.to === myId && !m.read_by.includes(myId)) privateCounts[other] += 1;
-      }
-    });
+  // global unread not tracked (public chat visible to all) -> 0
+  const privateCounts = {};
+  priv.forEach(m => {
+    const other = (m.from === myId) ? m.to : m.from;
+    if (!privateCounts[other]) privateCounts[other] = 0;
+    if (!m.read_by || !m.read_by.includes(myId)) {
+      // only count messages that are "to" me or from other to me
+      if (m.to === myId && !m.read_by.includes(myId)) privateCounts[other] += 1;
+    }
+  });
 
-    const groupCounts = {};
-    groups.forEach(m => {
-      const gid = m.group_id;
-      if (!groupCounts[gid]) groupCounts[gid] = 0;
-      if (!m.read_by || !m.read_by.includes(myId)) {
-        groupCounts[gid] += 1;
-      }
-    });
+  const groupCounts = {};
+  groups.forEach(m => {
+    const gid = m.group_id;
+    if (!groupCounts[gid]) groupCounts[gid] = 0;
+    if (!m.read_by || !m.read_by.includes(myId)) {
+      // only count if user is member (we'll rely on frontend)
+      groupCounts[gid] += 1;
+    }
+  });
 
-    res.json({ global: 0, private: privateCounts, groups: groupCounts });
-  } catch (err) {
-    console.error("Get unread error", err);
-    res.status(500).json({ error: "Server error" });
-  }
+  res.json({ global: 0, private: privateCounts, groups: groupCounts });
 });
 
 // ---------- SOCKET.IO presence & rooms ----------
+/*
+  Socket behavior:
+    - client emits 'online' with userId when logged in
+    - server keeps maps of socketId -> userId and userId -> count
+    - on disconnect decrements count and set user offline if zero
+*/
 const socketToUser = new Map();      // socketId -> userId
 const userSocketCount = new Map();   // userId -> number
 
 io.on("connection", (socket) => {
+  // console.log("socket connected", socket.id);
   socket.on("online", (userId) => {
     if (!userId) return;
     socketToUser.set(socket.id, userId);
@@ -565,13 +487,12 @@ io.on("connection", (socket) => {
   });
 
   socket.on("join_private", ({ me, other }) => {
-    if (!me || !other) return;
+    // join both permutations (so both can be reached)
     socket.join(`pm-${me}-${other}`);
     socket.join(`pm-${other}-${me}`);
   });
 
   socket.on("join_group", (groupId) => {
-    if (typeof groupId === "undefined" || groupId === null) return;
     socket.join(`group-${groupId}`);
   });
 
@@ -584,6 +505,7 @@ io.on("connection", (socket) => {
       userSocketCount.set(userId, next);
 
       if (next === 0) {
+        // mark offline persistently
         const users = load(usersFile);
         const u = users.find(x => x.id === userId);
         if (u) { u.online = false; save(usersFile, users); }
