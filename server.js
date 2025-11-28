@@ -1,547 +1,546 @@
-// server.js
-// Chat Nodo — servidor completo (JSON files, sockets, presencia, perfiles, unread, friend requests)
-// Versión corregida: validaciones añadidas, emisiones adicionales, pequeñas mejoras.
+// server.js (versión completa y corregida — usa sqlite3)
+// Requerimientos:
+//   npm install sqlite3
+// Colocar este archivo en la raíz del proyecto (junto a public/).
+// Mantiene compatibilidad con tu index.html y sockets.
 
-const express = require("express");
-const path = require("path");
-const http = require("http");
-const { Server } = require("socket.io");
-const bcrypt = require("bcryptjs");
-const session = require("express-session");
-const bodyParser = require("body-parser");
-const cookieParser = require("cookie-parser");
-const fs = require("fs");
+const express = require('express');
+const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
+const bcrypt = require('bcryptjs');
+const session = require('express-session');
+const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
+const fs = require('fs');
+const sqlite3 = require('sqlite3').verbose();
+const util = require('util');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { /* defaults */ });
+const io = new Server(server);
 
 const PORT = process.env.PORT || 8080;
-const DATA_DIR = path.join(__dirname, "data");
-
-// ensure data dir
+const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
-// file paths
-const usersFile = path.join(DATA_DIR, "users.json");
-const messagesFile = path.join(DATA_DIR, "messages.json"); // global chat
-const privateMessagesFile = path.join(DATA_DIR, "private_messages.json");
-const groupsFile = path.join(DATA_DIR, "groups.json");
-const groupMessagesFile = path.join(DATA_DIR, "group_messages.json");
-const friendRequestsFile = path.join(DATA_DIR, "friend_requests.json");
+// SQLite DB
+const DB_PATH = path.join(DATA_DIR, 'chat.db');
+const db = new sqlite3.Database(DB_PATH);
+db.runAsync = util.promisify(db.run.bind(db));
+db.getAsync = util.promisify(db.get.bind(db));
+db.allAsync = util.promisify(db.all.bind(db));
 
-// helper to create file
-function ensureFile(file, defaultContent) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(defaultContent, null, 2));
-}
-ensureFile(usersFile, []);
-ensureFile(messagesFile, []);
-ensureFile(privateMessagesFile, []);
-ensureFile(groupsFile, []);
-ensureFile(groupMessagesFile, []);
-ensureFile(friendRequestsFile, []);
-
-// read/write helpers
-function load(file) {
-  try { return JSON.parse(fs.readFileSync(file)); }
-  catch(e){ console.error("Failed to read", file, e); return []; }
-}
-function save(file, data) {
-  try { fs.writeFileSync(file, JSON.stringify(data, null, 2)); }
-  catch(e){ console.error("Failed to write", file, e); }
-}
+// Initialize schema
+(async function initDb() {
+  // users table
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password_hash TEXT,
+    avatar TEXT,
+    description TEXT,
+    online INTEGER DEFAULT 0
+  )`);
+  // contacts (bidirectional stored as pairs)
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS contacts (
+    user_id INTEGER,
+    contact_id INTEGER,
+    UNIQUE(user_id, contact_id)
+  )`);
+  // friend requests
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS friend_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_id INTEGER,
+    to_id INTEGER,
+    created_at TEXT
+  )`);
+  // global messages
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    text TEXT,
+    created_at TEXT
+  )`);
+  // private messages
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS private_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_id INTEGER,
+    to_id INTEGER,
+    text TEXT,
+    created_at TEXT,
+    read_by TEXT
+  )`);
+  // groups
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    created_by INTEGER
+  )`);
+  // group members
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS group_members (
+    group_id INTEGER,
+    user_id INTEGER,
+    UNIQUE(group_id, user_id)
+  )`);
+  // group messages
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS group_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER,
+    from_id INTEGER,
+    text TEXT,
+    created_at TEXT,
+    read_by TEXT
+  )`);
+})().catch(err => {
+  console.error('DB init error', err);
+});
 
 // middleware
-app.use(express.static(path.join(__dirname, "public")));
-app.use(bodyParser.json({limit: '2mb'})); // allow base64 avatars
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.set("trust proxy", 1);
+app.set('trust proxy', 1);
 
 app.use(session({
-  secret: process.env.SESSION_SECRET || "secret123",
+  secret: process.env.SESSION_SECRET || 'supersecret',
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
     maxAge: 1000 * 60 * 60 * 24 * 7
   }
 }));
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
-  res.status(401).json({ error: "Unauthorized" });
+  return res.status(401).json({ error: 'Unauthorized' });
 }
 
-// helper to get persistent user object from disk by session
-function getPersistentUser(req) {
+async function getUserBySession(req) {
   if (!req.session || !req.session.user) return null;
-  const users = load(usersFile);
-  return users.find(u => u.id === req.session.user.id) || null;
+  const id = req.session.user.id;
+  const user = await db.getAsync('SELECT id,username,avatar,description,online FROM users WHERE id = ?', [id]);
+  return user || null;
 }
 
 // ---------- AUTH ----------
-app.post("/api/register", async (req, res) => {
+app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
+    if (!username || !password) return res.status(400).json({ error: 'Missing username/password' });
 
-    const users = load(usersFile);
-    if (users.find(u => u.username === username)) return res.status(400).json({ error: "Username already exists" });
+    const existing = await db.getAsync('SELECT id FROM users WHERE username = ?', [username]);
+    if (existing) return res.status(400).json({ error: 'Username already exists' });
 
     const hash = await bcrypt.hash(password, 10);
-    const user = {
-      id: Date.now(),
-      username,
-      password_hash: hash,
-      contacts: [],
-      online: false,
-      avatar: null,
-      description: "",
-      sockets: 0
-    };
-
-    users.push(user);
-    save(usersFile, users);
-
-    req.session.user = { id: user.id, username: user.username };
+    const result = await db.runAsync('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username, hash]);
+    // get last id
+    const userId = result.lastID;
+    req.session.user = { id: userId, username };
     res.json(req.session.user);
   } catch (err) {
-    console.error("Register error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Register error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.post("/api/login", async (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
+    if (!username || !password) return res.status(400).json({ error: 'Missing username/password' });
 
-    const users = load(usersFile);
-    const user = users.find(u => u.username === username);
-    if (!user) return res.status(400).json({ error: "Invalid credentials" });
+    const user = await db.getAsync('SELECT id, username, password_hash FROM users WHERE username = ?', [username]);
+    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
     const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(400).json({ error: "Invalid credentials" });
+    if (!ok) return res.status(400).json({ error: 'Invalid credentials' });
 
     req.session.user = { id: user.id, username: user.username };
     res.json(req.session.user);
   } catch (err) {
-    console.error("Login error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Login error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.post("/api/logout", requireAuth, (req, res) => {
+app.post('/api/logout', requireAuth, (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-app.get("/api/me", (req, res) => {
-  const u = req.session.user || null;
-  if (!u) return res.json({ user: null });
-  const users = load(usersFile);
-  const user = users.find(x => x.id === u.id);
-  if (!user) return res.json({ user: null });
-  const publicUser = {
-    id: user.id, username: user.username,
-    avatar: user.avatar || null,
-    description: user.description || "",
-    online: !!user.online
-  };
-  res.json({ user: publicUser });
+app.get('/api/me', async (req, res) => {
+  try {
+    if (!req.session || !req.session.user) return res.json({ user: null });
+    const id = req.session.user.id;
+    const user = await db.getAsync('SELECT id,username,avatar,description,online FROM users WHERE id = ?', [id]);
+    if (!user) return res.json({ user: null });
+    res.json({ user: { id: user.id, username: user.username, avatar: user.avatar, description: user.description, online: !!user.online }});
+  } catch (err) {
+    console.error('Get /me error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
-// update profile: description, avatar (base64 data URL), display name optional
-app.post("/api/me/profile", requireAuth, (req, res) => {
+app.post('/api/me/profile', requireAuth, async (req, res) => {
   try {
     const { description, avatar } = req.body || {};
-    const users = load(usersFile);
-    const user = users.find(x => x.id === req.session.user.id);
-    if (!user) return res.status(400).json({ error: "User not found" });
+    const user = await getUserBySession(req);
+    if (!user) return res.status(400).json({ error: 'User not found' });
 
-    if (typeof description === "string") user.description = description;
-    if (avatar === null) user.avatar = null;
-    else if (typeof avatar === "string" && avatar.startsWith("data:")) user.avatar = avatar;
+    await db.runAsync('UPDATE users SET description = COALESCE(?, description), avatar = COALESCE(?, avatar) WHERE id = ?', [description === undefined ? null : description, avatar === undefined ? null : avatar, user.id]);
 
-    save(usersFile, users);
-    res.json({ ok: true, avatar: user.avatar, description: user.description });
+    const updated = await db.getAsync('SELECT id,username,avatar,description FROM users WHERE id = ?', [user.id]);
+    res.json({ ok: true, avatar: updated.avatar, description: updated.description });
   } catch (err) {
-    console.error("Profile update error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Profile update error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // ---------- FRIEND REQUESTS ----------
-app.post("/api/friend/request", requireAuth, (req, res) => {
+app.post('/api/friend/request', requireAuth, async (req, res) => {
   try {
     const { to } = req.body || {};
     if (!to) return res.status(400).json({ error: "Missing 'to' username" });
 
-    const users = load(usersFile);
-    const target = users.find(u => u.username === to);
-    const me = users.find(u => u.id === req.session.user.id);
-    if (!target) return res.status(400).json({ error: "User not found" });
-    if (!me) return res.status(400).json({ error: "Authenticated user not found" });
-    if (me.id === target.id) return res.status(400).json({ error: "Cannot add yourself" });
-    if (me.contacts.includes(target.id)) return res.status(400).json({ error: "Already contact" });
+    const me = await getUserBySession(req);
+    if (!me) return res.status(400).json({ error: 'Authenticated user not found' });
 
-    const requests = load(friendRequestsFile);
-    const exist = requests.find(r => r.from === me.id && r.to === target.id);
-    if (exist) return res.status(400).json({ error: "Request already sent" });
+    const target = await db.getAsync('SELECT id,username FROM users WHERE username = ?', [to]);
+    if (!target) return res.status(400).json({ error: 'User not found' });
+    if (target.id === me.id) return res.status(400).json({ error: 'Cannot add yourself' });
 
-    const newReq = { id: Date.now(), from: me.id, to: target.id, created_at: new Date().toISOString() };
-    requests.push(newReq);
-    save(friendRequestsFile, requests);
+    // check existing contact
+    const contactExists = await db.getAsync('SELECT 1 FROM contacts WHERE user_id = ? AND contact_id = ?', [me.id, target.id]);
+    if (contactExists) return res.status(400).json({ error: 'Already contact' });
 
-    // notify via socket
-    io.emit("friend_request", { fromId: me.id, fromName: me.username, toId: target.id });
+    // check existing request
+    const reqExists = await db.getAsync('SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?', [me.id, target.id]);
+    if (reqExists) return res.status(400).json({ error: 'Request already sent' });
+
+    await db.runAsync('INSERT INTO friend_requests (from_id, to_id, created_at) VALUES (?, ?, ?)', [me.id, target.id, new Date().toISOString()]);
+
+    io.emit('friend_request', { fromId: me.id, fromName: me.username, toId: target.id });
     res.json({ ok: true });
   } catch (err) {
-    console.error("Friend request error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Friend request error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.get("/api/friend/requests", requireAuth, (req, res) => {
-  const meId = req.session.user.id;
-  const requests = load(friendRequestsFile).filter(r => r.to === meId);
-  const users = load(usersFile);
-  const detailed = requests.map(r => {
-    const from = users.find(u => u.id === r.from);
-    return { id: r.id, from: r.from, fromName: from ? from.username : "User" , created_at: r.created_at };
-  });
-  res.json(detailed);
+app.get('/api/friend/requests', requireAuth, async (req, res) => {
+  try {
+    const me = await getUserBySession(req);
+    if (!me) return res.status(400).json([]);
+    const rows = await db.allAsync('SELECT fr.id,fr.from_id,fr.to_id,fr.created_at,u.username as fromName FROM friend_requests fr JOIN users u ON u.id = fr.from_id WHERE fr.to_id = ?', [me.id]);
+    res.json(rows.map(r => ({ id: r.id, from: r.from_id, fromName: r.fromName, created_at: r.created_at })));
+  } catch (err) {
+    console.error('Get friend requests error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
-app.post("/api/friend/accept", requireAuth, (req, res) => {
+app.post('/api/friend/accept', requireAuth, async (req, res) => {
   try {
     const { requestId } = req.body || {};
-    if (!requestId) return res.status(400).json({ error: "Missing requestId" });
+    if (!requestId) return res.status(400).json({ error: 'Missing requestId' });
 
-    let requests = load(friendRequestsFile);
-    const rIdx = requests.findIndex(r => r.id === requestId && r.to === req.session.user.id);
-    if (rIdx === -1) return res.status(400).json({ error: "Request not found" });
+    const reqRow = await db.getAsync('SELECT * FROM friend_requests WHERE id = ?', [requestId]);
+    if (!reqRow) return res.status(400).json({ error: 'Request not found' });
 
-    const reqObj = requests[rIdx];
-    requests.splice(rIdx,1);
-    save(friendRequestsFile, requests);
+    // ensure the acceptor is the 'to' user
+    if (reqRow.to_id !== req.session.user.id) return res.status(403).json({ error: 'Not authorized' });
 
-    const users = load(usersFile);
-    const a = users.find(u => u.id === reqObj.from);
-    const b = users.find(u => u.id === reqObj.to);
-    if (a && !a.contacts.includes(b.id)) a.contacts.push(b.id);
-    if (b && !b.contacts.includes(a.id)) b.contacts.push(a.id);
-    save(usersFile, users);
+    // add contacts both ways
+    const a = reqRow.from_id;
+    const b = reqRow.to_id;
+    await db.runAsync('INSERT OR IGNORE INTO contacts (user_id, contact_id) VALUES (?, ?)', [a, b]);
+    await db.runAsync('INSERT OR IGNORE INTO contacts (user_id, contact_id) VALUES (?, ?)', [b, a]);
 
-    io.emit("friend_accepted", { from: reqObj.from, to: reqObj.to });
+    // remove friend request
+    await db.runAsync('DELETE FROM friend_requests WHERE id = ?', [requestId]);
+
+    io.emit('friend_accepted', { from: a, to: b });
     res.json({ ok: true });
   } catch (err) {
-    console.error("Friend accept error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Friend accept error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ---------- CONTACTS ----------
-app.post("/api/add-contact", requireAuth, (req, res) => {
+// ---------- QUICK ADD CONTACT (direct add without request) ----------
+app.post('/api/add-contact', requireAuth, async (req, res) => {
   try {
     const { username } = req.body || {};
-    if (!username) return res.status(400).json({ error: "Missing username" });
+    if (!username) return res.status(400).json({ error: 'Missing username' });
 
-    const users = load(usersFile);
-    const me = users.find(u => u.id === req.session.user.id);
-    const other = users.find(u => u.username === username);
-    if (!me) return res.status(400).json({ error: "Authenticated user not found" });
-    if (!other) return res.status(400).json({ error: "No existe ese usuario" });
-    if (me.contacts.includes(other.id)) return res.status(400).json({ error: "Ya es tu contacto" });
+    const me = await getUserBySession(req);
+    if (!me) return res.status(400).json({ error: 'Authenticated user not found' });
 
-    me.contacts.push(other.id);
-    save(usersFile, users);
+    const other = await db.getAsync('SELECT id,username FROM users WHERE username = ?', [username]);
+    if (!other) return res.status(400).json({ error: 'User not found' });
+    if (other.id === me.id) return res.status(400).json({ error: 'Cannot add yourself' });
 
-    // notify interested parties (optional)
-    io.emit("contact_added", { by: me.id, contact: { id: other.id, username: other.username } });
+    await db.runAsync('INSERT OR IGNORE INTO contacts (user_id, contact_id) VALUES (?, ?)', [me.id, other.id]);
+    await db.runAsync('INSERT OR IGNORE INTO contacts (user_id, contact_id) VALUES (?, ?)', [other.id, me.id]);
 
+    io.emit('contact_added', { by: me.id, contact: { id: other.id, username: other.username } });
     res.json({ ok: true });
   } catch (err) {
-    console.error("Add contact error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Add contact error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.get("/api/contacts", requireAuth, (req, res) => {
-  const users = load(usersFile);
-  const me = users.find(u => u.id === req.session.user.id);
-  if (!me) return res.status(400).json([]);
-
-  const contacts = users.filter(u => me.contacts.includes(u.id)).map(u => ({
-    id: u.id, username: u.username, online: !!u.online, avatar: u.avatar || null, description: u.description || ""
-  }));
-  res.json(contacts);
+app.get('/api/contacts', requireAuth, async (req, res) => {
+  try {
+    const me = await getUserBySession(req);
+    if (!me) return res.status(400).json([]);
+    const rows = await db.allAsync('SELECT u.id,u.username,u.avatar,u.description,u.online FROM users u JOIN contacts c ON c.contact_id = u.id WHERE c.user_id = ?', [me.id]);
+    res.json(rows.map(r => ({ id: r.id, username: r.username, avatar: r.avatar, description: r.description, online: !!r.online })));
+  } catch (err) {
+    console.error('Get contacts error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // ---------- GLOBAL CHAT ----------
-app.get("/api/messages", (req, res) => {
-  const msgs = load(messagesFile);
-  res.json(msgs.slice(-200));
-});
-
-app.post("/api/messages", requireAuth, (req, res) => {
+app.get('/api/messages', async (req, res) => {
   try {
-    const text = (req.body && req.body.text) || "";
-    if (!text) return res.status(400).json({ error: "Missing text" });
-
-    const user = req.session.user;
-    const msgs = load(messagesFile);
-    const msg = {
-      id: Date.now(),
-      user_id: user.id,
-      username: user.username,
-      text,
-      created_at: new Date().toISOString()
-    };
-    msgs.push(msg);
-    save(messagesFile, msgs);
-    io.emit("message", msg);
-    res.json(msg);
+    const msgs = await db.allAsync('SELECT id,user_id,username,text,created_at FROM messages ORDER BY id DESC LIMIT 200');
+    res.json(msgs.reverse()); // return in chronological order
   } catch (err) {
-    console.error("Post global message error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Get messages error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ---------- PRIVATE MESSAGES (with read_by) ----------
-app.post("/api/private/send", requireAuth, (req, res) => {
+app.post('/api/messages', requireAuth, async (req, res) => {
+  try {
+    const { text } = req.body || {};
+    if (!text) return res.status(400).json({ error: 'Missing text' });
+    const me = await getUserBySession(req);
+    const now = new Date().toISOString();
+    await db.runAsync('INSERT INTO messages (user_id, username, text, created_at) VALUES (?, ?, ?, ?)', [me.id, me.username, text, now]);
+    const msg = { id: this ? this.lastID : Date.now(), user_id: me.id, username: me.username, text, created_at: now };
+    // fetch last inserted id more robustly:
+    const last = await db.getAsync('SELECT id, user_id, username, text, created_at FROM messages ORDER BY id DESC LIMIT 1');
+    io.emit('message', last);
+    res.json(last);
+  } catch (err) {
+    console.error('Post global message error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ---------- PRIVATE MESSAGES ----------
+app.post('/api/private/send', requireAuth, async (req, res) => {
   try {
     const { to, text } = req.body || {};
-    if (!to || !text) return res.status(400).json({ error: "Missing to/text" });
-
+    if (!to || !text) return res.status(400).json({ error: 'Missing to/text' });
+    const me = await getUserBySession(req);
     const toId = parseInt(to);
-    const msgs = load(privateMessagesFile);
-    const msg = {
-      id: Date.now(),
-      from: req.session.user.id,
-      to: toId,
-      text,
-      created_at: new Date().toISOString(),
-      read_by: [ req.session.user.id ] // sender has "read"
-    };
-    msgs.push(msg);
-    save(privateMessagesFile, msgs);
-
-    // emit to both users' rooms (rooms are joined by client)
-    io.to(`pm-${msg.from}-${msg.to}`).emit("private_message", msg);
-    io.to(`pm-${msg.to}-${msg.from}`).emit("private_message", msg);
-    res.json(msg);
+    const now = new Date().toISOString();
+    const read_by = JSON.stringify([me.id]); // sender read
+    await db.runAsync('INSERT INTO private_messages (from_id, to_id, text, created_at, read_by) VALUES (?, ?, ?, ?, ?)', [me.id, toId, text, now, read_by]);
+    const last = await db.getAsync('SELECT * FROM private_messages ORDER BY id DESC LIMIT 1');
+    // emit to rooms (client joins pm-{me}-{other} etc.)
+    io.to(`pm-${me.id}-${toId}`).emit('private_message', last);
+    io.to(`pm-${toId}-${me.id}`).emit('private_message', last);
+    res.json(last);
   } catch (err) {
-    console.error("Private send error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Private send error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.get("/api/private/:withId", requireAuth, (req, res) => {
+app.get('/api/private/:withId', requireAuth, async (req, res) => {
   try {
     const withId = parseInt(req.params.withId);
-    let msgs = load(privateMessagesFile);
-
-    const filtered = msgs.filter(m =>
-      (m.from === req.session.user.id && m.to === withId) ||
-      (m.from === withId && m.to === req.session.user.id)
-    );
-
-    // mark unread -> read for current user
+    const my = await getUserBySession(req);
+    // fetch conversation
+    const rows = await db.allAsync('SELECT * FROM private_messages WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?) ORDER BY id ASC', [my.id, withId, withId, my.id]);
+    // mark read_by for messages where to_id == me
     let changed = false;
-    filtered.forEach(m => {
-      if (!m.read_by) m.read_by = [];
-      if (!m.read_by.includes(req.session.user.id)) {
-        m.read_by.push(req.session.user.id);
+    for (const r of rows) {
+      let read = [];
+      if (r.read_by) {
+        try { read = JSON.parse(r.read_by); } catch(e) { read = []; }
+      }
+      if (!read.includes(my.id)) {
+        read.push(my.id);
+        await db.runAsync('UPDATE private_messages SET read_by = ? WHERE id = ?', [JSON.stringify(read), r.id]);
         changed = true;
       }
-    });
-    if (changed) {
-      const all = load(privateMessagesFile);
-      filtered.forEach(f => {
-        const idx = all.findIndex(x => x.id === f.id);
-        if (idx !== -1) all[idx] = f;
-      });
-      save(privateMessagesFile, all);
     }
-
-    res.json(filtered);
+    res.json(rows);
   } catch (err) {
-    console.error("Get private messages error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Get private messages error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.post("/api/private/mark-read", requireAuth, (req, res) => {
+app.post('/api/private/mark-read', requireAuth, async (req, res) => {
   try {
     const { withId } = req.body || {};
-    if (!withId) return res.status(400).json({ error: "Missing withId" });
-    const myId = req.session.user.id;
-
-    let msgs = load(privateMessagesFile);
-    let changed = false;
-    msgs.forEach(m => {
-      if ((m.from === parseInt(withId) && m.to === myId) || (m.from === myId && m.to === parseInt(withId))) {
-        if (!m.read_by) m.read_by = [];
-        if (!m.read_by.includes(myId)) { m.read_by.push(myId); changed = true; }
+    if (!withId) return res.status(400).json({ error: 'Missing withId' });
+    const my = await getUserBySession(req);
+    const rows = await db.allAsync('SELECT * FROM private_messages WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)', [my.id, withId, withId, my.id]);
+    for (const r of rows) {
+      let read = [];
+      if (r.read_by) {
+        try { read = JSON.parse(r.read_by); } catch(e){ read = []; }
       }
-    });
-    if (changed) save(privateMessagesFile, msgs);
+      if (!read.includes(my.id)) {
+        read.push(my.id);
+        await db.runAsync('UPDATE private_messages SET read_by = ? WHERE id = ?', [JSON.stringify(read), r.id]);
+      }
+    }
     res.json({ ok: true });
   } catch (err) {
-    console.error("Mark read error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Mark read error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // ---------- GROUPS ----------
-app.post("/api/groups/create", requireAuth, (req, res) => {
+app.post('/api/groups/create', requireAuth, async (req, res) => {
   try {
     const { name, members } = req.body || {};
-    if (!name) return res.status(400).json({ error: "Missing group name" });
-
-    const groups = load(groupsFile);
-    const group = {
-      id: Date.now(),
-      name,
-      members: Array.isArray(members) ? members.map(Number) : [],
-      created_by: req.session.user.id
-    };
-    // ensure creator is in members
-    if (!group.members.includes(req.session.user.id)) group.members.push(req.session.user.id);
-
-    groups.push(group);
-    save(groupsFile, groups);
-
-    // notify clients that a new group was created (optional)
-    io.emit("group_created", group);
-
+    if (!name) return res.status(400).json({ error: 'Missing group name' });
+    const me = await getUserBySession(req);
+    const result = await db.runAsync('INSERT INTO groups (name, created_by) VALUES (?, ?)', [name, me.id]);
+    const groupId = result.lastID;
+    // add creator as member
+    await db.runAsync('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)', [groupId, me.id]);
+    // add other members if provided
+    if (Array.isArray(members)) {
+      for (const m of members.map(Number)) {
+        await db.runAsync('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)', [groupId, m]);
+      }
+    }
+    const group = await db.getAsync('SELECT id, name, created_by FROM groups WHERE id = ?', [groupId]);
+    // return members count
+    const mems = await db.allAsync('SELECT user_id FROM group_members WHERE group_id = ?', [groupId]);
+    group.members = mems.map(r => r.user_id);
+    io.emit('group_created', group);
     res.json(group);
   } catch (err) {
-    console.error("Create group error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Create group error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// add member to group
-app.post("/api/groups/add-member", requireAuth, (req, res) => {
+app.post('/api/groups/add-member', requireAuth, async (req, res) => {
   try {
     const { group_id, username } = req.body || {};
-    if (!group_id || !username) return res.status(400).json({ error: "Missing group_id/username" });
-
-    const groups = load(groupsFile);
-    const users = load(usersFile);
-    const g = groups.find(x => x.id === parseInt(group_id));
-    if (!g) return res.status(400).json({ error: "Group not found" });
-
-    if (!g.members.includes(req.session.user.id)) return res.status(403).json({ error: "Not a member" });
-
-    const u = users.find(x => x.username === username);
-    if (!u) return res.status(400).json({ error: "User not found" });
-    if (!g.members.includes(u.id)) g.members.push(u.id);
-
-    save(groupsFile, groups);
-    io.to(`group-${g.id}`).emit("group_member_added", { group_id: g.id, user: { id: u.id, username: u.username } });
-    res.json({ ok: true, group: g });
+    if (!group_id || !username) return res.status(400).json({ error: 'Missing group_id/username' });
+    const g = await db.getAsync('SELECT id FROM groups WHERE id = ?', [group_id]);
+    if (!g) return res.status(400).json({ error: 'Group not found' });
+    const userToAdd = await db.getAsync('SELECT id, username FROM users WHERE username = ?', [username]);
+    if (!userToAdd) return res.status(400).json({ error: 'User not found' });
+    // check membership of requester
+    const me = await getUserBySession(req);
+    const isMember = await db.getAsync('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?', [group_id, me.id]);
+    if (!isMember) return res.status(403).json({ error: 'Not a member' });
+    await db.runAsync('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)', [group_id, userToAdd.id]);
+    io.to(`group-${group_id}`).emit('group_member_added', { group_id: parseInt(group_id), user: { id: userToAdd.id, username: userToAdd.username } });
+    res.json({ ok: true, group_id: group_id });
   } catch (err) {
-    console.error("Add member error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Add member error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.get("/api/groups", requireAuth, (req, res) => {
+app.get('/api/groups', requireAuth, async (req, res) => {
   try {
-    const groups = load(groupsFile);
-    const uid = req.session.user.id;
-    const my = groups.filter(g => g.members.includes(uid));
-    res.json(my);
+    const me = await getUserBySession(req);
+    const rows = await db.allAsync('SELECT g.id,g.name, (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id) AS member_count FROM groups g JOIN group_members gm ON gm.group_id = g.id WHERE gm.user_id = ?', [me.id]);
+    const groups = rows.map(r => ({ id: r.id, name: r.name, members: r.member_count }));
+    res.json(groups);
   } catch (err) {
-    console.error("Get groups error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Get groups error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.post("/api/groups/send", requireAuth, (req, res) => {
+app.post('/api/groups/send', requireAuth, async (req, res) => {
   try {
     const { group_id, text } = req.body || {};
-    if (!group_id || !text) return res.status(400).json({ error: "Missing group_id/text" });
-
-    const msgs = load(groupMessagesFile);
-    const msg = {
-      id: Date.now(),
-      group_id: parseInt(group_id),
-      from: req.session.user.id,
-      text,
-      created_at: new Date().toISOString(),
-      read_by: [ req.session.user.id ]
-    };
-    msgs.push(msg);
-    save(groupMessagesFile, msgs);
-
-    io.to(`group-${group_id}`).emit("group_message", msg);
-    res.json(msg);
+    if (!group_id || !text) return res.status(400).json({ error: 'Missing group_id/text' });
+    const me = await getUserBySession(req);
+    const now = new Date().toISOString();
+    await db.runAsync('INSERT INTO group_messages (group_id, from_id, text, created_at, read_by) VALUES (?, ?, ?, ?, ?)', [group_id, me.id, text, now, JSON.stringify([me.id])]);
+    const last = await db.getAsync('SELECT * FROM group_messages WHERE id = (SELECT MAX(id) FROM group_messages)');
+    io.to(`group-${group_id}`).emit('group_message', last);
+    res.json(last);
   } catch (err) {
-    console.error("Group send error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Group send error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.get("/api/groups/messages/:id", requireAuth, (req, res) => {
+app.get('/api/groups/messages/:id', requireAuth, async (req, res) => {
   try {
     const gid = parseInt(req.params.id);
-    let msgs = load(groupMessagesFile);
-    const filtered = msgs.filter(m => m.group_id === gid);
-    let changed = false;
-    filtered.forEach(m => {
-      if (!m.read_by) m.read_by = [];
-      if (!m.read_by.includes(req.session.user.id)) { m.read_by.push(req.session.user.id); changed = true; }
-    });
-    if (changed) {
-      const all = load(groupMessagesFile);
-      filtered.forEach(f => {
-        const idx = all.findIndex(x => x.id === f.id);
-        if (idx !== -1) all[idx] = f;
-      });
-      save(groupMessagesFile, all);
+    const me = await getUserBySession(req);
+    const rows = await db.allAsync('SELECT * FROM group_messages WHERE group_id = ? ORDER BY id ASC', [gid]);
+    // mark read_by for user
+    for (const r of rows) {
+      let read = [];
+      if (r.read_by) {
+        try { read = JSON.parse(r.read_by); } catch(e){ read = []; }
+      }
+      if (!read.includes(me.id)) {
+        read.push(me.id);
+        await db.runAsync('UPDATE group_messages SET read_by = ? WHERE id = ?', [JSON.stringify(read), r.id]);
+      }
     }
-    res.json(filtered);
+    res.json(rows);
   } catch (err) {
-    console.error("Get group messages error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Get group messages error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // ---------- UNREAD COUNTS ----------
-app.get("/api/unread", requireAuth, (req, res) => {
+app.get('/api/unread', requireAuth, async (req, res) => {
   try {
-    const myId = req.session.user.id;
-    const priv = load(privateMessagesFile);
-    const groups = load(groupMessagesFile);
+    const me = await getUserBySession(req);
+    const priv = await db.allAsync('SELECT * FROM private_messages');
+    const groupsMsgs = await db.allAsync('SELECT * FROM group_messages');
 
     const privateCounts = {};
     priv.forEach(m => {
-      const other = (m.from === myId) ? m.to : m.from;
-      if (!privateCounts[other]) privateCounts[other] = 0;
-      if (!m.read_by || !m.read_by.includes(myId)) {
-        if (m.to === myId && !m.read_by.includes(myId)) privateCounts[other] += 1;
+      let read = [];
+      if (m.read_by) {
+        try { read = JSON.parse(m.read_by); } catch(e){ read = []; }
+      }
+      const other = (m.from_id === me.id) ? m.to_id : m.from_id;
+      if (m.to_id === me.id && !read.includes(me.id)) {
+        privateCounts[other] = (privateCounts[other] || 0) + 1;
       }
     });
 
     const groupCounts = {};
-    groups.forEach(m => {
-      const gid = m.group_id;
-      if (!groupCounts[gid]) groupCounts[gid] = 0;
-      if (!m.read_by || !m.read_by.includes(myId)) {
-        groupCounts[gid] += 1;
+    groupsMsgs.forEach(m => {
+      let read = [];
+      if (m.read_by) {
+        try { read = JSON.parse(m.read_by); } catch(e){ read = []; }
+      }
+      if (!read.includes(me.id)) {
+        groupCounts[m.group_id] = (groupCounts[m.group_id] || 0) + 1;
       }
     });
 
     res.json({ global: 0, private: privateCounts, groups: groupCounts });
   } catch (err) {
-    console.error("Get unread error", err);
-    res.status(500).json({ error: "Server error" });
+    console.error('Get unread error', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -549,45 +548,39 @@ app.get("/api/unread", requireAuth, (req, res) => {
 const socketToUser = new Map();      // socketId -> userId
 const userSocketCount = new Map();   // userId -> number
 
-io.on("connection", (socket) => {
-  socket.on("online", (userId) => {
+io.on('connection', (socket) => {
+  socket.on('online', async (userId) => {
     if (!userId) return;
     socketToUser.set(socket.id, userId);
     const prev = userSocketCount.get(userId) || 0;
     userSocketCount.set(userId, prev + 1);
 
     // persistent mark online true
-    const users = load(usersFile);
-    const u = users.find(x => x.id === userId);
-    if (u) { u.online = true; save(usersFile, users); }
-
-    io.emit("presence_update", { id: userId, online: true });
+    await db.runAsync('UPDATE users SET online = 1 WHERE id = ?', [userId]);
+    io.emit('presence_update', { id: userId, online: true });
   });
 
-  socket.on("join_private", ({ me, other }) => {
+  socket.on('join_private', ({ me, other }) => {
     if (!me || !other) return;
     socket.join(`pm-${me}-${other}`);
     socket.join(`pm-${other}-${me}`);
   });
 
-  socket.on("join_group", (groupId) => {
-    if (typeof groupId === "undefined" || groupId === null) return;
+  socket.on('join_group', (groupId) => {
+    if (typeof groupId === 'undefined' || groupId === null) return;
     socket.join(`group-${groupId}`);
   });
 
-  socket.on("disconnect", () => {
+  socket.on('disconnect', async () => {
     const userId = socketToUser.get(socket.id);
     socketToUser.delete(socket.id);
     if (userId) {
       const prev = userSocketCount.get(userId) || 1;
       const next = Math.max(0, prev - 1);
       userSocketCount.set(userId, next);
-
       if (next === 0) {
-        const users = load(usersFile);
-        const u = users.find(x => x.id === userId);
-        if (u) { u.online = false; save(usersFile, users); }
-        io.emit("presence_update", { id: userId, online: false });
+        await db.runAsync('UPDATE users SET online = 0 WHERE id = ?', [userId]);
+        io.emit('presence_update', { id: userId, online: false });
       }
     }
   });
@@ -595,10 +588,10 @@ io.on("connection", (socket) => {
 
 // SPA support (serve index for any non-api routes)
 app.get(/^\/(?!api).*/, (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // start
 server.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log('Server running on port', PORT);
 });
