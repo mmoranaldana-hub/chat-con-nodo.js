@@ -246,7 +246,7 @@ body.dark .msg {
     function bindUI(){
       document.getElementById('add-contact-btn').onclick = async ()=>{
         const username = document.getElementById('add-contact-name').value.trim(); if(!username) return alert('Escribe un usuario');
-        const r = await api('/friend/request','POST',{ to: username }); if(r && r.error) return alert(r.error); document.getElementById('add-contact-name').value=''; alert('Solicitud enviada');
+        const r = await api('/add-contact','POST',{ to: username }); if(r && r.error) return alert(r.error); document.getElementById('add-contact-name').value=''; alert('Solicitud enviada');
       };
 
       document.getElementById('create-group-btn').onclick = async ()=>{ const name = document.getElementById('new-group-name').value.trim(); if(!name) return alert('Nombre requerido'); const r = await api('/groups/create','POST',{ name, members: [] }); if(r && r.error) return alert(r.error); document.getElementById('new-group-name').value=''; await loadGroups(); };
