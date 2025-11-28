@@ -1,8 +1,3 @@
-// ============================
-// ChatNodo — Servidor Completo con SQLite
-// Compatible con Render, Node.js 18-20
-// ============================
-
 // Librerías principales
 const express = require("express");
 const path = require("path");
@@ -32,6 +27,10 @@ if (!fs.existsSync(DATA_DIR)) {
 const DB_PATH = path.join(DATA_DIR, "database.sqlite");
 console.log("USING SQLITE DB AT:", DB_PATH);
 
+// -----------------------------
+// CONEXIÓN A SQLITE  (FALTABA ESTO)
+// -----------------------------
+const db = new sqlite3.Database(DB_PATH);
 
 // Helpers promesas para sqlite
 const dbRun = (sql, params = []) =>
