@@ -6,9 +6,11 @@
   <title>ChatNodo — Corregido</title>
   <style>
     :root{
-      --bg: #e9edef; --panel: #fff; --accent:#25D366; --muted:#8a9398; --me:#DCF8C6; --them:#ffffff; --header:#075E54; --text:#111827;
-      --dark-bg: #0f1720; --dark-panel:#111827; --dark-text:#e6eef3;
-    }
+  --bg: #e9edef; --panel: #fff; --accent:#25D366; --muted:#8a9398; 
+  --me:#DCF8C6; --them:#ffffff; --header:#075E54; --text:#111827;
+  --dark-bg: #0f1720; --dark-panel:#111827; --dark-text:#e6eef3;
+}
+
     *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif}
     html,body,#root{height:100%;}
     body{height:100vh;background:var(--bg);color:var(--text)}
@@ -40,10 +42,59 @@
     /* Chat area */
     .chat{flex:1;display:flex;flex-direction:column;border-radius:12px;background:var(--panel);overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
     .chat .head{display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid #eee;background:linear-gradient(90deg,var(--header),#128C7E);color:#fff}
-    .messages{flex:1;padding:16px;overflow:auto;background:#eaf3ee;min-height:0}
+    /* Fondo del área de mensajes */
+.messages {
+  flex: 1;
+  padding: 16px;
+  overflow: auto;
+  background: var(--chat-bg);
+  min-height: 0;
+}
+
+.msg {
+  max-width: 72%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+  word-break: break-word;
+}
+
+.msg .meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+/* Mensajes */
+.msg.me {
+  margin-left: auto;
+  background: var(--msg-me);
+}
+
+.msg.other {
+  background: var(--msg-other);
+}
+
+/* Modo oscuro */
+body.dark .messages {
+  background: var(--chat-bg-dark);
+}
+
+body.dark .msg.me {
+  background: var(--msg-me-dark);
+}
+
+body.dark .msg.other {
+  background: var(--msg-other-dark);
+}
+
+body.dark .msg {
+  color: var(--dark-text);
+}
+
+
     .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,0.03);word-break:break-word}
-    .msg.me{margin-left:auto;background:var(--me)}
-    .msg.other{background:var(--them)}
     .msg .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
 
     .composer{display:flex;gap:10px;padding:12px;border-top:1px solid #f0f0f0;align-items:center}
