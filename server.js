@@ -1,4 +1,4 @@
-// server.js - fixed: robust private rooms + reliable group creation response
+// server.js - corrected for Render deployment and matching frontend expectations
 const express = require("express");
 const path = require("path");
 const http = require("http");
@@ -136,7 +136,7 @@ async function getUserBySession(req){
   return await dbGet("SELECT * FROM users WHERE id = ?", [req.session.user.id]);
 }
 
-// --- AUTH endpoints (unchanged) ---
+// AUTH
 app.post("/api/register", async (req, res) => {
   try{
     const { username, password } = req.body;
@@ -191,6 +191,7 @@ app.post("/api/me/profile", requireAuth, async (req, res) => {
 // CONTACTS
 app.post("/api/add-contact", requireAuth, async (req, res) => {
   try{
+    // accept { username } or { to }
     const username = req.body.username || req.body.to;
     if(!username) return res.status(400).json({ error: "Missing username" });
     const me = await getUserBySession(req);
@@ -225,23 +226,15 @@ app.post("/api/messages", requireAuth, async (req, res) => {
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
 });
 
-// PRIVATE MESSAGES - improved emit to personal rooms + pm rooms
+// PRIVATE MESSAGES
 app.post("/api/private/send", requireAuth, async (req, res) => {
   try{
     const { to, text } = req.body;
     const me = await getUserBySession(req);
-    const created = new Date().toISOString();
-    const info = await dbRun("INSERT INTO private_messages (from_id, to_id, text, created_at, read_by) VALUES (?,?,?,?,?)", [me.id, to, text, created, JSON.stringify([me.id])]);
-    const msg = { id: info.lastID, from_id: me.id, to_id: to, text, created_at: created, read_by: [me.id] };
-
-    // Emit to both users' personal rooms (robust) and also to pm rooms for compatibility
-    io.to(`user-${to}`).emit("private_message", msg);
-    io.to(`user-${me.id}`).emit("private_message", msg);
-
+    const info = await dbRun("INSERT INTO private_messages (from_id, to_id, text, created_at, read_by) VALUES (?,?,?,?,?)", [me.id, to, text, new Date().toISOString(), JSON.stringify([me.id])]);
+    const msg = { id: info.lastID, from_id: me.id, to_id: to, text, created_at: new Date().toISOString(), read_by: [me.id] };
     io.to(`pm-${me.id}-${to}`).emit("private_message", msg);
     io.to(`pm-${to}-${me.id}`).emit("private_message", msg);
-
-    console.log(`PM sent from ${me.id} to ${to} -> emitted to user-${to} and pm rooms`);
     res.json(msg);
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
 });
@@ -269,13 +262,10 @@ app.post("/api/groups/create", requireAuth, async (req, res) => {
         await dbRun("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?,?)", [groupId, m]);
       }
     }
-    // Build full created group to return
-    const membersList = await dbAll("SELECT u.id,u.username FROM users u JOIN group_members gm ON gm.user_id=u.id WHERE gm.group_id=?", [groupId]);
-    const group = { id: groupId, name, members: membersList, created_by: me.id };
-    // respond with full group object (so frontend can add it)
-    res.json(group);
-    io.emit("group_created", group);
-    console.log("Group created:", group);
+    // return the created group as object
+    const group = await dbGet("SELECT id, name, created_by FROM groups WHERE id=?", [groupId]);
+    res.json({ id: group.id, name: group.name });
+    io.emit("group_created", { id: groupId, name });
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
 });
 
@@ -287,9 +277,8 @@ app.post("/api/groups/add-member", requireAuth, async (req, res) => {
     const target = await dbGet("SELECT * FROM users WHERE username = ?", [username]);
     if(!target) return res.status(400).json({ error: "User not found" });
     await dbRun("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?,?)", [group_id, target.id]);
-    const userObj = { id: target.id, username: target.username };
-    io.to(`group-${group_id}`).emit("group_member_added", { group_id, user: userObj });
-    res.json({ ok:true, user: userObj });
+    io.to(`group-${group_id}`).emit("group_member_added", { group_id, user: { id: target.id, username: target.username } });
+    res.json({ ok:true });
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
 });
 
@@ -297,11 +286,13 @@ app.get("/api/groups", requireAuth, async (req, res) => {
   try{
     const me = await getUserBySession(req);
     const rows = await dbAll("SELECT g.id, g.name FROM groups g JOIN group_members gm ON gm.group_id = g.id WHERE gm.user_id = ?", [me.id]);
+    // for each row, fetch members count and member list
     const out = [];
     for(const r of rows){
       const members = await dbAll("SELECT u.id, u.username FROM users u JOIN group_members gm ON gm.user_id = u.id WHERE gm.group_id = ?", [r.id]);
       out.push({ id: r.id, name: r.name, members });
     }
+    // return as object to match frontend expectation
     res.json({ groups: out });
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
 });
@@ -319,9 +310,8 @@ app.post("/api/groups/send", requireAuth, async (req, res) => {
   try{
     const { group_id, text } = req.body;
     const me = await getUserBySession(req);
-    const created = new Date().toISOString();
-    const info = await dbRun("INSERT INTO group_messages (group_id, from_id, text, created_at, read_by) VALUES (?,?,?,?,?)", [group_id, me.id, text, created, JSON.stringify([me.id])]);
-    const msg = { id: info.lastID, group_id, from: me.id, text, created_at: created, read_by: [me.id] };
+    const info = await dbRun("INSERT INTO group_messages (group_id, from_id, text, created_at, read_by) VALUES (?,?,?,?,?)", [group_id, me.id, text, new Date().toISOString(), JSON.stringify([me.id])]);
+    const msg = { id: info.lastID, group_id, from: me.id, text, created_at: new Date().toISOString(), read_by: [me.id] };
     io.to(`group-${group_id}`).emit("group_message", msg);
     res.json(msg);
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
@@ -332,33 +322,21 @@ const socketToUser = new Map();
 const userSocketCount = new Map();
 
 io.on("connection", (socket) => {
-  // log connection
-  console.log("socket connected:", socket.id);
-
   socket.on("online", async (userId) => {
     if(!userId) return;
     socketToUser.set(socket.id, userId);
     userSocketCount.set(userId, (userSocketCount.get(userId) || 0) + 1);
-
-    // join a personal user room for robust PM delivery
-    socket.join(`user-${userId}`);
-    // also update DB online state
     await dbRun("UPDATE users SET online=1 WHERE id=?", [userId]);
     io.emit("presence_update", { id: userId, online: true });
-    console.log(`socket ${socket.id} joined user-${userId} (online)`);
   });
 
   socket.on("join_private", ({ me, other }) => {
-    try {
-      socket.join(`pm-${me}-${other}`);
-      socket.join(`pm-${other}-${me}`);
-      console.log(`socket ${socket.id} joined pm-${me}-${other} and pm-${other}-${me}`);
-    } catch(err) { console.error("join_private error", err); }
+    socket.join(`pm-${me}-${other}`);
+    socket.join(`pm-${other}-${me}`);
   });
 
   socket.on("join_group", (groupId) => {
     socket.join(`group-${groupId}`);
-    console.log(`socket ${socket.id} joined group-${groupId}`);
   });
 
   socket.on("disconnect", async () => {
@@ -371,7 +349,6 @@ io.on("connection", (socket) => {
         io.emit("presence_update", { id: userId, online: false });
       }
     }
-    console.log("socket disconnected:", socket.id);
   });
 });
 
