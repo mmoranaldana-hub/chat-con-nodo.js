@@ -1,30 +1,14 @@
-// public/js/main.js - frontend rewritten to match corrected server API
+// public/js/main.js - frontend corregido (reemplaza tu archivo actual)
 const socket = io();
 let me = null;
 let current = { type: 'global' };
-
-async function apiFetch(path, opts = {}){
-  if(!opts.headers) opts.headers = {};
-  opts.credentials = 'include';
-  if(opts.body && !opts.headers['Content-Type']) opts.headers['Content-Type'] = 'application/json';
-  const res = await fetch('/api'+path, opts);
-  const txt = await res.text();
-  try { return JSON.parse(txt); } catch(e){ return txt; }
-}
-
-async function register(username, password){
-  return apiFetch('/register', { method: 'POST', body: JSON.stringify({ username, password }) });
-}
-async function login(username, password){
-  return apiFetch('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
-}
 
 async function api(path, method='GET', body){
   const opts = { method, headers: {}, credentials: 'include' };
   if(body){ opts.headers['Content-Type']='application/json'; opts.body = JSON.stringify(body); }
   const res = await fetch('/api'+path, opts);
-  if(res.headers.get('content-type') && res.headers.get('content-type').includes('application/json')) return await res.json();
-  try { return await res.json(); } catch(e){ return null; }
+  const txt = await res.text();
+  try { return JSON.parse(txt); } catch(e){ return txt; }
 }
 
 // UI bindings and logic
@@ -35,8 +19,7 @@ document.getElementById('login-btn').addEventListener('click', async ()=>{
   const u = document.getElementById('login-username').value.trim();
   const p = document.getElementById('login-password').value.trim();
   if(!u||!p){ document.getElementById('auth-msg').textContent='Completa usuario y contraseña'; return; }
-  const r = await apiFetch('/login','POST',{ body: JSON.stringify({ username:u, password:p }) });
-  // note: apiFetch returns parsed JSON for /login in this helper, but we also support api() for other calls
+  const r = await api('/login','POST', { username: u, password: p });
   if(r && r.error){ document.getElementById('auth-msg').textContent = r.error; return; }
   await initAfterAuth();
 });
@@ -45,7 +28,7 @@ document.getElementById('reg-btn').addEventListener('click', async ()=>{
   const u = document.getElementById('reg-username').value.trim();
   const p = document.getElementById('reg-password').value.trim();
   if(!u||!p){ document.getElementById('auth-msg').textContent='Completa usuario y contraseña'; return; }
-  const r = await apiFetch('/register','POST',{ body: JSON.stringify({ username:u, password:p }) });
+  const r = await api('/register','POST', { username: u, password: p });
   if(r && r.error){ document.getElementById('auth-msg').textContent = r.error; return; }
   await initAfterAuth();
 });
