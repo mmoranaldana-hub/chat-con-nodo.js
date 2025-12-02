@@ -5,7 +5,7 @@ const io = require("socket.io")(http);
 const session = require("express-session");
 const SQLiteStore = require("connect-sqlite3")(session);
 const sqlite3 = require("sqlite3").verbose();
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const path = require("path");
 
 app.use(express.json());
