@@ -1,327 +1,497 @@
+// Librerías principales
 const express = require("express");
-const app = express();
-const http = require("http").createServer(app);
-const io = require("socket.io")(http);
-const session = require("express-session");
-const SQLiteStore = require("connect-sqlite3")(session);
-const sqlite3 = require("sqlite3").verbose();
-const bcrypt = require("bcryptjs");
 const path = require("path");
+const http = require("http");
+const { Server } = require("socket.io");
+const bcrypt = require("bcryptjs");
+const session = require("express-session");
+const bodyParser = require("body-parser");
+const cookieParser = require("cookie-parser");
+const fs = require("fs");
+const sqlite3 = require("sqlite3").verbose();
 
-app.use(express.json());
-app.use(express.static("public"));
+// -----------------------------
+// Inicialización
+// -----------------------------
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+const PORT = process.env.PORT || 8080;
+
+const DATA_DIR = path.join(__dirname, "data");
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const DB_PATH = path.join(DATA_DIR, "database.sqlite");
+console.log("USING SQLITE DB AT:", DB_PATH);
+
+// -----------------------------
+// CONEXIÓN A SQLITE  (FALTABA ESTO)
+// -----------------------------
+const db = new sqlite3.Database(DB_PATH);
+
+// Helpers promesas para sqlite
+const dbRun = (sql, params = []) =>
+  new Promise((res, rej) => db.run(sql, params, function (err) { err ? rej(err) : res(this); }));
+
+const dbGet = (sql, params = []) =>
+  new Promise((res, rej) => db.get(sql, params, (err, row) => err ? rej(err) : res(row)));
+
+const dbAll = (sql, params = []) =>
+  new Promise((res, rej) => db.all(sql, params, (err, rows) => err ? rej(err) : res(rows)));
+
+// -----------------------------
+// CREAR TABLAS
+// -----------------------------
+(async function initDb() {
+  try {
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        username TEXT UNIQUE,
+        password_hash TEXT,
+        avatar TEXT,
+        description TEXT,
+        online INTEGER DEFAULT 0
+      );
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS contacts (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER,
+        contact_id INTEGER,
+        UNIQUE(user_id, contact_id)
+      );
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS friend_requests (
+        id INTEGER PRIMARY KEY,
+        from_id INTEGER,
+        to_id INTEGER,
+        created_at TEXT
+      );
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER,
+        username TEXT,
+        text TEXT,
+        created_at TEXT
+      );
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS private_messages (
+        id INTEGER PRIMARY KEY,
+        from_id INTEGER,
+        to_id INTEGER,
+        text TEXT,
+        created_at TEXT,
+        read_by TEXT
+      );
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS groups (
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        created_by INTEGER
+      );
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        id INTEGER PRIMARY KEY,
+        group_id INTEGER,
+        user_id INTEGER,
+        UNIQUE(group_id, user_id)
+      );
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id INTEGER PRIMARY KEY,
+        group_id INTEGER,
+        from_id INTEGER,
+        text TEXT,
+        created_at TEXT,
+        read_by TEXT
+      );
+    `);
+
+    console.log("SQLite DB inicializada correctamente.");
+  } catch (e) {
+    console.error("Error inicializando DB:", e);
+  }
+})();
+
+// -----------------------------
+// MIDDLEWARE
+// -----------------------------
+app.use(express.static(path.join(__dirname, "public")));
+app.use(bodyParser.json({ limit: "5mb" }));
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.set("trust proxy", 1);
 
 app.use(
-    session({
-        secret: "super-secret",
-        resave: false,
-        saveUninitialized: false,
-        store: new SQLiteStore()
-    })
+  session({
+    secret: "secret123",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    },
+  })
 );
 
-const db = new sqlite3.Database("./database.db");
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) return next();
+  res.status(401).json({ error: "Unauthorized" });
+}
 
-db.serialize(() => {
+async function getUserBySession(req) {
+  if (!req.session || !req.session.user) return null;
+  return await dbGet("SELECT * FROM users WHERE id = ?", [req.session.user.id]);
+}
 
-    db.run(`CREATE TABLE IF NOT EXISTS users(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password TEXT,
-        avatar TEXT,
-        description TEXT
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS contacts(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        contact_id INTEGER
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS groups(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        owner_id INTEGER
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS group_members(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        group_id INTEGER,
-        user_id INTEGER,
-        is_admin INTEGER DEFAULT 0
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS messages(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sender_id INTEGER,
-        receiver_id INTEGER,
-        group_id INTEGER,
-        message TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS presence(
-        user_id INTEGER PRIMARY KEY,
-        online INTEGER DEFAULT 0,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-});
-
-
-// ----------------------------
-//  RUTAS DE AUTENTICACIÓN
-// ----------------------------
-
+// -----------------------------
+// AUTH
+// -----------------------------
 app.post("/api/register", async (req, res) => {
+  try {
     const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "Missing fields" });
+
+    const exists = await dbGet("SELECT id FROM users WHERE username = ?", [username]);
+    if (exists) return res.status(400).json({ error: "Username exists" });
 
     const hash = await bcrypt.hash(password, 10);
-
-    db.run(
-        `INSERT INTO users(username, password) VALUES(?, ?)`,
-        [username, hash],
-        function (err) {
-            if (err) return res.json({ error: "El usuario ya existe" });
-
-            req.session.userId = this.lastID;
-            req.session.username = username;
-
-            res.json({ ok: true, id: this.lastID });
-        }
+    const info = await dbRun(
+      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+      [username, hash]
     );
+
+    req.session.user = { id: info.lastID, username };
+    res.json(req.session.user);
+  } catch (e) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-app.post("/api/login", (req, res) => {
+app.post("/api/login", async (req, res) => {
+  try {
     const { username, password } = req.body;
+    const user = await dbGet("SELECT * FROM users WHERE username = ?", [username]);
+    if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
-    db.get(
-        `SELECT * FROM users WHERE username = ?`,
-        [username],
-        async (err, user) => {
-            if (!user) return res.json({ error: "Usuario no encontrado" });
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return res.status(400).json({ error: "Invalid credentials" });
 
-            const valid = await bcrypt.compare(password, user.password);
-            if (!valid) return res.json({ error: "Contraseña incorrecta" });
-
-            req.session.userId = user.id;
-            req.session.username = user.username;
-
-            db.run(`INSERT OR REPLACE INTO presence(user_id, online) VALUES(?, 1)`,
-                [user.id]
-            );
-
-            res.json({ ok: true, id: user.id });
-        }
-    );
+    req.session.user = { id: user.id, username: user.username };
+    res.json(req.session.user);
+  } catch (e) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-app.post("/api/logout", (req, res) => {
-    const uid = req.session.userId;
-
-    db.run(`UPDATE presence SET online = 0 WHERE user_id = ?`, [uid]);
-    req.session.destroy(() => res.json({ ok: true }));
+app.post("/api/logout", requireAuth, (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
 });
 
-app.get("/api/me", (req, res) => {
-    if (!req.session.userId) return res.json({ user: null });
-
-    db.get(
-        `SELECT id, username, avatar, description
-         FROM users
-         WHERE id = ?`,
-        [req.session.userId],
-        (err, row) => res.json({ user: row })
-    );
+app.get("/api/me", async (req, res) => {
+  const u = await getUserBySession(req);
+  if (!u) return res.json({ user: null });
+  res.json({
+    user: {
+      id: u.id,
+      username: u.username,
+      avatar: u.avatar,
+      description: u.description,
+      online: !!u.online,
+    },
+  });
 });
 
+// -----------------------------
+// PERFIL
+// -----------------------------
+app.post("/api/me/profile", requireAuth, async (req, res) => {
+  try {
+    const { description, avatar } = req.body;
+    const u = await getUserBySession(req);
 
-// ----------------------------
-//  CONTACTOS
-// ----------------------------
+    await dbRun("UPDATE users SET description=?, avatar=? WHERE id=?", [
+      description || "",
+      avatar || null,
+      u.id,
+    ]);
 
-app.get("/api/contacts", (req, res) => {
-    const uid = req.session.userId;
-
-    db.all(
-        `
-        SELECT u.id, u.username, p.online
-        FROM contacts c
-        JOIN users u ON u.id = c.contact_id
-        LEFT JOIN presence p ON p.user_id = u.id
-        WHERE c.user_id = ?
-        `,
-        [uid],
-        (err, rows) => res.json(rows || [])
-    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-app.post("/api/add-contact", (req, res) => {
-    const uid = req.session.userId;
-    const { to } = req.body;
+// -----------------------------
+// CONTACTOS
+// -----------------------------
+app.post("/api/add-contact", requireAuth, async (req, res) => {
+  try {
+    const { username } = req.body;
+    const me = await getUserBySession(req);
+    const other = await dbGet("SELECT * FROM users WHERE username=?", [username]);
 
-    db.get(`SELECT id FROM users WHERE username = ?`, [to], (err, user) => {
-        if (!user) return res.json({ error: "El usuario no existe" });
+    if (!other) return res.status(400).json({ error: "No existe ese usuario" });
 
-        db.run(
-            `INSERT OR IGNORE INTO contacts(user_id, contact_id)
-             VALUES (?, ?)`,
-            [uid, user.id],
-            () => {
-                io.emit("friend_request", { toId: user.id, fromName: req.session.username });
-                res.json({ ok: true });
-            }
-        );
-    });
+    await dbRun("INSERT OR IGNORE INTO contacts (user_id, contact_id) VALUES (?,?)", [
+      me.id,
+      other.id,
+    ]);
+    await dbRun("INSERT OR IGNORE INTO contacts (user_id, contact_id) VALUES (?,?)", [
+      other.id,
+      me.id,
+    ]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
+app.get("/api/contacts", requireAuth, async (req, res) => {
+  const me = await getUserBySession(req);
 
-// ----------------------------
-//  GRUPOS
-// ----------------------------
+  const rows = await dbAll(
+    "SELECT u.id, u.username, u.avatar, u.description, u.online FROM contacts c JOIN users u ON u.id = c.contact_id WHERE c.user_id = ?",
+    [me.id]
+  );
 
-app.post("/api/groups/create", (req, res) => {
-    const owner = req.session.userId;
-    const { name, members } = req.body;
-
-    db.run(
-        `INSERT INTO groups(name, owner_id) VALUES(?, ?)`,
-        [name, owner],
-        function () {
-            const groupId = this.lastID;
-
-            db.run(
-                `INSERT INTO group_members(group_id, user_id, is_admin)
-                 VALUES(?, ?, 1)`,
-                [groupId, owner]
-            );
-
-            (members || []).forEach(m => {
-                db.run(
-                    `INSERT INTO group_members(group_id, user_id, is_admin)
-                     VALUES(?, ?, 0)`,
-                    [groupId, m]
-                );
-            });
-
-            res.json({ ok: true, groupId });
-        }
-    );
+  res.json(rows);
 });
 
-app.get("/api/groups", (req, res) => {
-    const uid = req.session.userId;
-
-    db.all(
-        `
-        SELECT g.id, g.name
-        FROM group_members gm
-        JOIN groups g ON g.id = gm.group_id
-        WHERE gm.user_id = ?
-        `,
-        [uid],
-        async (err, groups) => {
-            for (let g of groups) {
-                g.members = await new Promise(resolve => {
-                    db.all(
-                        `
-                        SELECT u.id, u.username, gm.is_admin
-                        FROM group_members gm
-                        JOIN users u ON u.id = gm.user_id
-                        WHERE gm.group_id = ?
-                        `,
-                        [g.id],
-                        (err2, rows) => resolve(rows || [])
-                    );
-                });
-            }
-
-            res.json(groups);
-        }
-    );
+// -----------------------------
+// GLOBAL CHAT
+// -----------------------------
+app.get("/api/messages", async (req, res) => {
+  const rows = await dbAll("SELECT * FROM messages ORDER BY id DESC LIMIT 200");
+  res.json(rows.reverse());
 });
 
-app.get("/api/groups/messages/:id", (req, res) => {
-    db.all(
-        `
-        SELECT m.*, u.username
-        FROM messages m
-        JOIN users u ON u.id = m.sender_id
-        WHERE m.group_id = ?
-        ORDER BY m.timestamp ASC
-        `,
-        [req.params.id],
-        (err, rows) => res.json(rows || [])
-    );
+app.post("/api/messages", requireAuth, async (req, res) => {
+  const { text } = req.body;
+  const me = await getUserBySession(req);
+
+  const info = await dbRun(
+    "INSERT INTO messages (user_id, username, text, created_at) VALUES (?,?,?,?)",
+    [me.id, me.username, text, new Date().toISOString()]
+  );
+
+  const msg = {
+    id: info.lastID,
+    user_id: me.id,
+    username: me.username,
+    text,
+    created_at: new Date().toISOString(),
+  };
+
+  io.emit("message", msg);
+  res.json(msg);
 });
 
-app.post("/api/groups/send", (req, res) => {
-    const uid = req.session.userId;
-    const { group_id, text } = req.body;
+// -----------------------------
+// MENSAJES PRIVADOS
+// -----------------------------
+app.post("/api/private/send", requireAuth, async (req, res) => {
+  const { to, text } = req.body;
+  const me = await getUserBySession(req);
 
-    db.run(
-        `
-        INSERT INTO messages(sender_id, group_id, message)
-        VALUES (?, ?, ?)
-        `,
-        [uid, group_id, text],
-        () => {
-            io.to("group_" + group_id).emit("group_message", {
-                from: uid,
-                group_id,
-                text
-            });
+  const info = await dbRun(
+    "INSERT INTO private_messages (from_id, to_id, text, created_at, read_by) VALUES (?,?,?,?,?)",
+    [me.id, to, text, new Date().toISOString(), JSON.stringify([me.id])]
+  );
 
-            res.json({ ok: true });
-        }
-    );
+  const msg = {
+    id: info.lastID,
+    from_id: me.id,
+    to_id: to,
+    text,
+    created_at: new Date().toISOString(),
+    read_by: [me.id],
+  };
+
+  io.to(`pm-${me.id}-${to}`).emit("private_message", msg);
+  io.to(`pm-${to}-${me.id}`).emit("private_message", msg);
+
+  res.json(msg);
 });
 
-app.post("/api/groups/promote", (req, res) => {
-    const uid = req.session.userId;
-    const { groupId, targetId } = req.body;
+app.get("/api/private/:withId", requireAuth, async (req, res) => {
+  const withId = parseInt(req.params.withId);
+  const me = await getUserBySession(req);
 
-    db.get(
-        `
-        SELECT is_admin FROM group_members
-        WHERE user_id = ? AND group_id = ?
-        `,
-        [uid, groupId],
-        (err, row) => {
-            if (!row || !row.is_admin)
-                return res.json({ error: "No eres administrador" });
+  const rows = await dbAll(
+    "SELECT * FROM private_messages WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?) ORDER BY id ASC",
+    [me.id, withId, withId, me.id]
+  );
 
-            db.run(
-                `
-                UPDATE group_members
-                SET is_admin = 1
-                WHERE user_id = ? AND group_id = ?
-                `,
-                [targetId, groupId],
-                () => res.json({ ok: true })
-            );
-        }
-    );
+  const out = rows.map((r) => ({
+    id: r.id,
+    from: r.from_id,
+    to: r.to_id,
+    text: r.text,
+    created_at: r.created_at,
+    read_by: JSON.parse(r.read_by || "[]"),
+  }));
+
+  res.json(out);
 });
 
+// -----------------------------
+// GRUPOS
+// -----------------------------
+app.post("/api/groups/create", requireAuth, async (req, res) => {
+  const { name, members } = req.body;
+  const me = await getUserBySession(req);
 
-// ----------------------------
+  const info = await dbRun("INSERT INTO groups (name, created_by) VALUES (?,?)", [
+    name,
+    me.id,
+  ]);
+
+  const groupId = info.lastID;
+  await dbRun("INSERT INTO group_members (group_id, user_id) VALUES (?,?)", [
+    groupId,
+    me.id,
+  ]);
+
+  if (Array.isArray(members)) {
+    for (const m of members) {
+      await dbRun(
+        "INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?,?)",
+        [groupId, m]
+      );
+    }
+  }
+
+  io.emit("group_created", { id: groupId, name });
+  res.json({ id: groupId, name });
+});
+
+app.post("/api/groups/add-member", requireAuth, async (req, res) => {
+  const { group_id, username } = req.body;
+  const me = await getUserBySession(req);
+
+  const g = await dbGet("SELECT * FROM groups WHERE id=?", [group_id]);
+  if (!g) return res.status(400).json({ error: "Group not found" });
+
+  const target = await dbGet("SELECT * FROM users WHERE username=?", [username]);
+  if (!target) return res.status(400).json({ error: "User not found" });
+
+  await dbRun(
+    "INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?,?)",
+    [group_id, target.id]
+  );
+
+  io.to(`group-${group_id}`).emit("group_member_added", {
+    group_id,
+    user: { id: target.id, username: target.username },
+  });
+
+  res.json({ ok: true });
+});
+
+app.get("/api/groups", requireAuth, async (req, res) => {
+  const me = await getUserBySession(req);
+
+  const rows = await dbAll(
+    "SELECT g.id, g.name FROM groups g JOIN group_members gm ON gm.group_id = g.id WHERE gm.user_id = ?",
+    [me.id]
+  );
+
+  res.json(rows);
+});
+
+app.post("/api/groups/send", requireAuth, async (req, res) => {
+  const { group_id, text } = req.body;
+  const me = await getUserBySession(req);
+
+  const info = await dbRun(
+    "INSERT INTO group_messages (group_id, from_id, text, created_at, read_by) VALUES (?,?,?,?,?)",
+    [group_id, me.id, text, new Date().toISOString(), JSON.stringify([me.id])]
+  );
+
+  const msg = {
+    id: info.lastID,
+    group_id,
+    from: me.id,
+    text,
+    created_at: new Date().toISOString(),
+    read_by: [me.id],
+  };
+
+  io.to(`group-${group_id}`).emit("group_message", msg);
+  res.json(msg);
+});
+
+// -----------------------------
 // SOCKET.IO
-// ----------------------------
+// -----------------------------
+const socketToUser = new Map();
+const userSocketCount = new Map();
 
 io.on("connection", (socket) => {
+  socket.on("online", async (userId) => {
+    if (!userId) return;
 
-    socket.on("auth", ({ userId }) => {
-        socket.join("user_" + userId);
-    });
+    socketToUser.set(socket.id, userId);
+    userSocketCount.set(userId, (userSocketCount.get(userId) || 0) + 1);
 
-    socket.on("join_group", (groupId) => {
-        socket.join("group_" + groupId);
-    });
+    await dbRun("UPDATE users SET online=1 WHERE id=?", [userId]);
+    io.emit("presence_update", { id: userId, online: true });
+  });
 
-    socket.on("private_message", (data) => {
-        io.to("user_" + data.receiver).emit("private_message", data);
-    });
+  socket.on("join_private", ({ me, other }) => {
+    socket.join(`pm-${me}-${other}`);
+    socket.join(`pm-${other}-${me}`);
+  });
+
+  socket.on("join_group", (groupId) => {
+    socket.join(`group-${groupId}`);
+  });
+
+  socket.on("disconnect", async () => {
+    const userId = socketToUser.get(socket.id);
+    socketToUser.delete(socket.id);
+
+    if (userId) {
+      userSocketCount.set(userId, userSocketCount.get(userId) - 1);
+
+      if (userSocketCount.get(userId) <= 0) {
+        await dbRun("UPDATE users SET online=0 WHERE id=?", [userId]);
+        io.emit("presence_update", { id: userId, online: false });
+      }
+    }
+  });
 });
 
+// -----------------------------
+// SPA fallback
+// -----------------------------
+app.get(/^\/(?!api).*/, (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
-http.listen(3000, () => console.log("Servidor listo en http://localhost:3000"));
+// -----------------------------
+// START SERVER
+// -----------------------------
+server.listen(PORT, () => console.log("Servidor corriendo en puerto", PORT));
