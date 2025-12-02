@@ -130,21 +130,43 @@ async function loadContacts(){
   }
 }
 
-async function loadGroups(){
+async function loadGroups() {
   const data = await api('/groups');
-  // server returns { groups: [...] } — support both cases
-  const groups = (data && data.groups) ? data.groups : (Array.isArray(data) ? data : []);
+  const groups = data.groups || [];
+
+  // El contenedor general
   const list = document.getElementById('contacts-list');
-  Array.from(list.querySelectorAll('.group-item')).forEach(n=>n.remove());
-  groups.forEach(g=>{
-    const el = document.createElement('div'); el.className='item group-item';
-    el.innerHTML = `<div style="width:44px"><div class="me-avatar">#</div></div><div class="meta"><div class="title">${g.name}</div><div class="small">${(g.members||[]).length} miembros</div></div>`;
-    el.onclick = ()=> openGroup(g.id,g.name);
-    const contLabel = Array.from(list.children).find(ch => ch.textContent === 'Contactos');
-    if(contLabel) list.insertBefore(el, contLabel);
-    else list.appendChild(el);
+
+  // Elimina todos los items anteriores
+  const oldGroups = list.querySelectorAll('.group-item');
+  oldGroups.forEach(g => g.remove());
+
+  // Buscar el punto donde insertar antes de "Contactos"
+  const contactsHeader = Array.from(list.children).find(el => el.textContent === "Contactos");
+
+  groups.forEach(gr => {
+    const el = document.createElement("div");
+    el.className = "item group-item";
+
+    el.innerHTML = `
+      <div style="width:44px">
+        <div class="me-avatar">#</div>
+      </div>
+      <div class="meta">
+        <div class="title">${gr.name}</div>
+        <div class="small">${gr.members.length} miembros</div>
+      </div>
+    `;
+
+    el.onclick = () => openGroup(gr.id, gr.name);
+
+    if (contactsHeader)
+      list.insertBefore(el, contactsHeader);
+    else
+      list.appendChild(el);
   });
 }
+
 
 /* ------------------ Open chat functions ------------------ */
 async function openGlobal(){
@@ -222,20 +244,28 @@ socket.on('message',(m)=>{
   if(current.type==='global'){ render(m); scrollBottom(); }
 });
 
-socket.on('private_message',(m)=>{
-  // normalize fields (server sends from_id/to_id)
-  if(m.from_id !== undefined) m.from = m.from_id;
-  if(m.to_id !== undefined) m.to = m.to_id;
+socket.on("private_message", (m) => {
+  const sender = m.from || m.from_id;
+  const target = m.to || m.to_id;
 
-  // if we are viewing this private chat, render immediately
-  if(current.type==='private' && (m.from === current.withId || m.to === current.withId)){
+  // Mensaje pertenece al chat abierto
+  if (current.type === "private" && current.withId === sender) {
     render(m);
     scrollBottom();
-  } else {
-    // otherwise refresh contact list (new message indicator)
-    loadContacts();
+    return;
   }
+
+  // O si soy el destinatario y estoy escribiendo con el otro
+  if (current.type === "private" && current.withId === target) {
+    render(m);
+    scrollBottom();
+    return;
+  }
+
+  // Si no es el chat abierto, actualizar lista (para mostrar “nuevo mensaje”)
+  loadContacts();
 });
+
 
 socket.on('group_message',(m)=>{
   if(m.group_id === undefined && m.groupId) m.group_id = m.groupId;
