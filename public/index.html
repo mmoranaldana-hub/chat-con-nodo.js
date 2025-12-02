@@ -110,6 +110,106 @@ body.dark .msg {
       .sidebar{width:100%;order:2}
       .chat{order:1}
     }
+    /* ============================
+   RESPONSIVE — MÓVILES (nuevo)
+   ============================ */
+
+@media(max-width: 600px){
+  
+  /* Estructura principal */
+  .app{
+    flex-direction: column;
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .sidebar{
+    width: 100% !important;
+    border-radius: 10px;
+  }
+
+  .chat{
+    width: 100%;
+    border-radius: 10px;
+  }
+
+  /* Top bar compacta */
+  .top{
+    padding: 8px;
+  }
+
+  .logo{
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+
+  .search input{
+    padding: 7px;
+    font-size: 14px;
+  }
+
+  /* Perfil */
+  .me-avatar{
+    width: 46px;
+    height: 46px;
+  }
+
+  .profile{
+    padding: 10px;
+  }
+
+  /* Lista */
+  .item{
+    padding: 6px;
+    gap: 8px;
+  }
+
+  /* Chat header */
+  .chat .head{
+    padding: 10px;
+    gap: 8px;
+  }
+
+  /* Área de mensajes */
+  .messages{
+    padding: 10px;
+  }
+
+  .msg{
+    max-width: 90% !important;
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+
+  .msg .meta{
+    font-size: 11px;
+  }
+
+  /* Composer */
+  .composer{
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .composer input{
+    padding: 9px;
+    font-size: 14px;
+  }
+
+  .btn{
+    padding: 8px 10px !important;
+    font-size: 14px;
+  }
+
+  /* Emoji picker */
+  #emoji-picker{
+    right: 10px !important;
+    bottom: 80px !important;
+    transform: scale(0.9);
+  }
+}
+
   </style>
 </head>
 <body>
