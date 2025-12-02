@@ -28,7 +28,7 @@ const DB_PATH = path.join(DATA_DIR, "database.sqlite");
 console.log("USING SQLITE DB AT:", DB_PATH);
 
 // -----------------------------
-// CONEXIÓN A SQLITE  (FALTABA ESTO)
+// CONEXIÓN A SQLITE
 // -----------------------------
 const db = new sqlite3.Database(DB_PATH);
 
@@ -147,8 +147,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: true,
+      sameSite: "none",
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
