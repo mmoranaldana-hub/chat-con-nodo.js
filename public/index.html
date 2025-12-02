@@ -208,12 +208,72 @@ body.dark .msg {
     bottom: 80px !important;
     transform: scale(0.9);
   }
+  /* ============================
+   ESTILO WHATSAPP PARA MÓVIL
+   ============================ */
+@media(max-width: 600px){
+
+  /* Oculta sidebar por defecto */
+  .sidebar{
+    position: fixed;
+    top: 0;
+    left: -100%;
+    width: 75%;
+    height: 100%;
+    background: var(--panel);
+    z-index: 50;
+    transition: left 0.25s ease;
+  }
+
+  /* Cuando está abierta */
+  .sidebar.open{
+    left: 0;
+  }
+
+  /* Cubre el resto con fondo oscuro */
+  #overlay{
+    display:none;
+    position:fixed;
+    top:0; left:0;
+    width:100%; height:100%;
+    background:rgba(0,0,0,0.4);
+    z-index:40;
+  }
+
+  #overlay.show{
+    display:block;
+  }
+
+  /* El chat ocupa toda la pantalla */
+  .chat{
+    width:100%;
+    height:100vh;
+  }
+
+  /* Botón ☰ visible */
+  .mobile-only{
+    display:block !important;
+  }
+
+  /* Ocultar título de app para más espacio */
+  .brand{
+    display:none;
+  }
+
+  /* Ajustes menores */
+  .app{
+    padding:0;
+    gap:0;
+  }
+}
+
 }
 
   </style>
 </head>
 <body>
   <div id="root">
+    <div id="overlay"></div>
     <!-- AUTH -->
     <div id="auth" style="display:none;max-width:480px;margin:30px auto;padding:18px;background:#fff;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.06)">
       <h2 id="auth-title">Inicia sesión</h2>
@@ -275,6 +335,7 @@ body.dark .msg {
 
       <main class="chat panel">
         <div class="head">
+          <button id="mobile-menu-btn" class="mobile-only" style="display:none;font-size:22px;background:none;border:none;color:white;">☰</button>
           <div style="display:flex;align-items:center;gap:12px">
             <div class="me-avatar" id="chat-avatar">G</div>
             <div><div id="chat-name" style="font-weight:700">Global</div><div class="small" id="chat-sub">Chat público</div></div>
@@ -433,6 +494,54 @@ body.dark .msg {
     async function updateUserCount(){ const cs = await api('/contacts'); const online = (cs||[]).filter(x=>x.online).length; document.getElementById('user-count').textContent = online + ' online'; }
 
     (async ()=>{ await checkSession(); })();
+    (async ()=>{ await checkSession(); })();
+
+/* ============================
+   MODO MÓVIL TIPO WHATSAPP
+   ============================ */
+const sidebar = document.querySelector(".sidebar");
+const overlay = document.getElementById("overlay");
+const menuBtn = document.getElementById("mobile-menu-btn");
+
+// Abrir sidebar
+menuBtn.addEventListener("click", () => {
+  sidebar.classList.add("open");
+  overlay.classList.add("show");
+});
+
+// Cerrar al tocar fuera
+overlay.addEventListener("click", () => {
+  sidebar.classList.remove("open");
+  overlay.classList.remove("show");
+});
+
+// Cerrar cuando entras a un chat
+function closeSidebar(){
+  sidebar.classList.remove("open");
+  overlay.classList.remove("show");
+}
+
+// Reemplazo funciones para cerrar menú al abrir chat
+const originalOpenPrivate = openPrivate;
+openPrivate = function(id, name){
+  closeSidebar();
+  originalOpenPrivate(id, name);
+}
+
+const originalOpenGroup = openGroup;
+openGroup = function(id, name){
+  closeSidebar();
+  originalOpenGroup(id, name);
+}
+
+const originalOpenGlobal = openGlobal;
+openGlobal = function(){
+  closeSidebar();
+  originalOpenGlobal();
+}
+
+</script>
+
   </script>
 </body>
 </html>
