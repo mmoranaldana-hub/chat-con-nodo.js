@@ -289,19 +289,3 @@ async function updateUserCount(){ const cs = await api('/contacts'); const onlin
 (async ()=>{ await checkSession(); })();
 
 //update 1 
-
-/* === Admin & Member Management === */
-async function setAdmin(group_id, user_id, makeAdmin){
-  const r = await api('/groups/set-admin','POST',{ group_id, user_id, is_admin: !!makeAdmin });
-  if(r && r.error) return alert(r.error);
-  await loadGroups();
-  if(current && current.type==='group' && current.id===group_id) openGroup(group_id, current.name);
-}
-
-async function removeMember(group_id, user_id){
-  if(!confirm('Expulsar a este miembro del grupo?')) return;
-  const r = await api('/groups/remove-member','POST',{ group_id, user_id });
-  if(r && r.error) return alert(r.error);
-  await loadGroups();
-  if(current && current.type==='group' && current.id===group_id) openGroup(group_id, current.name);
-}
