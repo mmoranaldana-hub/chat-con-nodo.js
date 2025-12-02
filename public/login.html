@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Iniciar sesión</title>
+  <style>
+    body { font-family: Arial; padding: 30px; background: #f0f0f0; }
+    .card { background: white; padding: 20px; border-radius: 10px; width: 300px; margin:auto; }
+    input { width: 100%; padding: 10px; margin: 5px 0; }
+    button { width: 100%; padding: 10px; background: black; color: white; border: none; border-radius: 5px; cursor: pointer; }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <h2>Login</h2>
+
+    <input id="username" placeholder="Usuario">
+    <input id="password" type="password" placeholder="Contraseña">
+
+    <button onclick="login()">Entrar</button>
+    <p id="msg"></p>
+  </div>
+
+
+  <script>
+    async function login() {
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+
+      const res = await fetch("http://localhost:3000/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        document.getElementById("msg").innerText = data.error;
+        return;
+      }
+
+      // Guardar sesión
+      localStorage.setItem("user", JSON.stringify(data));
+
+      // Redirigir a tu chat principal
+      window.location.href = "index.html";
+    }
+  </script>
+</body>
+</html>
