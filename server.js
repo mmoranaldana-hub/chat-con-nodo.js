@@ -1,4 +1,4 @@
-// server.js - fixed: robust private rooms + reliable group creation response
+// server.js - con soporte para admins de grupo y expulsiones (Opción A)
 const express = require("express");
 const path = require("path");
 const http = require("http");
@@ -31,8 +31,9 @@ const dbGet = (sql, params = []) =>
 const dbAll = (sql, params = []) =>
   new Promise((res, rej) => db.all(sql, params, (err, rows) => err ? rej(err) : res(rows)));
 
-(async function initDb() {
+async function ensureSchema() {
   try {
+    // tablas base (si no existen)
     await dbRun(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,11 +83,13 @@ const dbAll = (sql, params = []) =>
       );
     `);
 
+    // Nota: incluimos is_admin en la definición para nuevas instalaciones.
     await dbRun(`
       CREATE TABLE IF NOT EXISTS group_members (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         group_id INTEGER,
         user_id INTEGER,
+        is_admin INTEGER DEFAULT 0,
         UNIQUE(group_id, user_id)
       );
     `);
@@ -102,11 +105,21 @@ const dbAll = (sql, params = []) =>
       );
     `);
 
-    console.log("SQLite DB inicializada correctamente.");
+    // Si la tabla ya existía sin is_admin, agregarla (seguro para DB previas)
+    const cols = await dbAll("PRAGMA table_info('group_members')");
+    const hasIsAdmin = cols.some(c => c && c.name === "is_admin");
+    if (!hasIsAdmin) {
+      console.log("Migración: agregando columna is_admin a group_members");
+      await dbRun("ALTER TABLE group_members ADD COLUMN is_admin INTEGER DEFAULT 0");
+    }
+
+    console.log("SQLite DB inicializada / migrada correctamente.");
   } catch (e) {
     console.error("Error inicializando DB:", e);
   }
-})();
+}
+
+ensureSchema();
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(bodyParser.json({ limit: "5mb" }));
@@ -120,7 +133,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: true,
+    // Nota: secure:true + sameSite:'none' requiere HTTPS. Si trabajas en localhost, ajusta según necesites.
+    secure: !!process.env.SESSION_SECURE, 
     sameSite: "none",
     maxAge: 1000 * 60 * 60 * 24 * 7
   }
@@ -136,7 +150,7 @@ async function getUserBySession(req){
   return await dbGet("SELECT * FROM users WHERE id = ?", [req.session.user.id]);
 }
 
-// --- AUTH endpoints (unchanged) ---
+// --- AUTH endpoints ---
 app.post("/api/register", async (req, res) => {
   try{
     const { username, password } = req.body;
@@ -261,16 +275,23 @@ app.post("/api/groups/create", requireAuth, async (req, res) => {
   try{
     const { name, members } = req.body;
     const me = await getUserBySession(req);
+    if(!name || name.trim().length === 0) return res.status(400).json({ error: "Group name required" });
+
     const info = await dbRun("INSERT INTO groups (name, created_by) VALUES (?,?)", [name, me.id]);
     const groupId = info.lastID;
-    await dbRun("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?,?)", [groupId, me.id]);
+
+    // Insert creator as member and mark as admin
+    await dbRun("INSERT OR IGNORE INTO group_members (group_id, user_id, is_admin) VALUES (?,?,1)", [groupId, me.id]);
+
     if(Array.isArray(members)){
       for(const m of members){
+        // assume m is user id (int). If frontend passes username, adapt as needed.
         await dbRun("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?,?)", [groupId, m]);
       }
     }
+
     // Build full created group to return
-    const membersList = await dbAll("SELECT u.id,u.username FROM users u JOIN group_members gm ON gm.user_id=u.id WHERE gm.group_id=?", [groupId]);
+    const membersList = await dbAll("SELECT u.id,u.username,gm.is_admin FROM users u JOIN group_members gm ON gm.user_id=u.id WHERE gm.group_id=?", [groupId]);
     const group = { id: groupId, name, members: membersList, created_by: me.id };
     // respond with full group object (so frontend can add it)
     res.json(group);
@@ -293,14 +314,58 @@ app.post("/api/groups/add-member", requireAuth, async (req, res) => {
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
 });
 
+// Assign/Remove admin (solo creator o admin)
+app.post("/api/groups/set-admin", requireAuth, async (req, res) => {
+  try{
+    const { group_id, user_id, is_admin } = req.body;
+    const me = await getUserBySession(req);
+    const g = await dbGet("SELECT * FROM groups WHERE id=?", [group_id]);
+    if(!g) return res.status(400).json({ error: "Group not found" });
+
+    const meMember = await dbGet("SELECT * FROM group_members WHERE group_id=? AND user_id=?", [group_id, me.id]);
+    const meIsAdmin = (g.created_by === me.id) || (meMember && meMember.is_admin);
+
+    if(!meIsAdmin) return res.status(403).json({ error: "No permission" });
+
+    // Prevent demoting the creator
+    if(user_id === g.created_by && !is_admin) return res.status(400).json({ error: "Cannot remove admin from creator" });
+
+    await dbRun("UPDATE group_members SET is_admin=? WHERE group_id=? AND user_id=?", [is_admin?1:0, group_id, user_id]);
+    io.to(`group-${group_id}`).emit("group_admin_changed", { group_id, user_id, is_admin: !!is_admin });
+    res.json({ ok:true });
+  }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
+});
+
+// Expulsar miembro (kick) - solo creator o admin
+app.post("/api/groups/remove-member", requireAuth, async (req, res) => {
+  try{
+    const { group_id, user_id } = req.body;
+    const me = await getUserBySession(req);
+    const g = await dbGet("SELECT * FROM groups WHERE id=?", [group_id]);
+    if(!g) return res.status(400).json({ error: "Group not found" });
+
+    const meMember = await dbGet("SELECT * FROM group_members WHERE group_id=? AND user_id=?", [group_id, me.id]);
+    const meIsAdmin = (g.created_by === me.id) || (meMember && meMember.is_admin);
+
+    if(!meIsAdmin) return res.status(403).json({ error: "No permission" });
+
+    // cannot remove the creator
+    if(user_id === g.created_by) return res.status(400).json({ error: "Cannot remove group creator" });
+
+    await dbRun("DELETE FROM group_members WHERE group_id=? AND user_id=?", [group_id, user_id]);
+    io.to(`group-${group_id}`).emit("group_member_removed", { group_id, user_id });
+    res.json({ ok:true });
+  }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
+});
+
 app.get("/api/groups", requireAuth, async (req, res) => {
   try{
     const me = await getUserBySession(req);
-    const rows = await dbAll("SELECT g.id, g.name FROM groups g JOIN group_members gm ON gm.group_id = g.id WHERE gm.user_id = ?", [me.id]);
+    const rows = await dbAll("SELECT g.id, g.name, g.created_by FROM groups g JOIN group_members gm ON gm.group_id = g.id WHERE gm.user_id = ?", [me.id]);
     const out = [];
     for(const r of rows){
-      const members = await dbAll("SELECT u.id, u.username FROM users u JOIN group_members gm ON gm.user_id = u.id WHERE gm.group_id = ?", [r.id]);
-      out.push({ id: r.id, name: r.name, members });
+      const members = await dbAll("SELECT u.id, u.username, gm.is_admin FROM users u JOIN group_members gm ON gm.user_id = u.id WHERE gm.group_id = ?", [r.id]);
+      out.push({ id: r.id, name: r.name, members, created_by: r.created_by });
     }
     res.json({ groups: out });
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
