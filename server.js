@@ -495,26 +495,3 @@ app.get(/^\/(?!api).*/, (req, res) => {
 // START SERVER
 // -----------------------------
 server.listen(PORT, () => console.log("Servidor corriendo en puerto", PORT));
-
-
-// --- AUTO-INJECTED: ensure tables exist ---
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      username TEXT,
-      text TEXT,
-      created_at TEXT
-    )
-  `, (err) => { if (err) console.error('CREATE messages error', err); });
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE,
-      password TEXT
-    )
-  `, (err) => { if (err) console.error('CREATE users error', err); });
-});
-// --- END AUTO-INJECTED ---
