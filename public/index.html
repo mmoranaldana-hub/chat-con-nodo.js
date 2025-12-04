@@ -34,7 +34,23 @@
 
     .tools{display:flex;gap:8px;padding:10px;border-bottom:1px solid #f0f0f0}
     .list{overflow:auto;padding:8px;flex:1;min-height:0} /* min-height:0 so it can scroll */
-    .item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
+    .item{
+  display:flex;
+  gap:12px;                /* ✅ Más separación entre foto y texto */
+  align-items:center;
+  padding:8px 10px;
+  border-radius:10px;
+  cursor:pointer;
+}
+
+.item .me-avatar{
+  min-width: 44px;         /* ✅ Evita que la foto se encime */
+  min-height: 44px;
+  width: 44px;
+  height: 44px;
+  font-size: 14px;
+}
+
     .item:hover{background:#f4f7f6}
     .item .meta{flex:1}
     .badge{background:#ff3b30;color:#fff;padding:2px 6px;border-radius:12px;font-size:12px}
@@ -52,12 +68,22 @@
 }
 
 .msg {
-  max-width: 72%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  margin-bottom: 8px;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+  max-width: 55%;   /* ✅ Más angosto */
+  padding: 8px 10px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
   word-break: break-word;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.msg.me {
+  border-bottom-right-radius: 2px;
+}
+
+.msg.other {
+  border-bottom-left-radius: 2px;
 }
 
 .msg .meta {
