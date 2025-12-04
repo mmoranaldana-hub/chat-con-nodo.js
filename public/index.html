@@ -445,9 +445,11 @@ body.dark .msg.other .meta{
         <div class="messages" id="messages"></div>
 
         <div class="composer">
-          <button id="emoji-btn" class="btn">😀</button>
-          <input id="message-input" placeholder="Escribe un mensaje..." />
-          <button id="send-btn" class="btn">Enviar</button>
+  <input type="file" id="file-input" style="display:none" />
+  <button id="file-btn" class="btn">📎</button>
+  <button id="emoji-btn" class="btn">😀</button>
+  <input id="message-input" placeholder="Escribe un mensaje..." />
+  <button id="send-btn" class="btn">Enviar</button>
         </div>
       </main>
     </div>
@@ -680,7 +682,44 @@ function render(m){
     new Date(m.created_at).toLocaleString();
 
   const body = document.createElement('div');
-  body.textContent = m.text || '';
+
+  // ✅ SI ES ARCHIVO
+  if(m.file_url){
+    const ext = m.file_url.split('.').pop().toLowerCase();
+
+    // 🖼️ IMAGEN
+    if(['jpg','jpeg','png','gif','webp'].includes(ext)){
+      const img = document.createElement('img');
+      img.src = m.file_url;
+      img.style.maxWidth = "220px";
+      img.style.borderRadius = "10px";
+      img.style.marginTop = "6px";
+      body.appendChild(img);
+    }
+    // 🎥 VIDEO
+    else if(['mp4','webm','ogg'].includes(ext)){
+      const video = document.createElement('video');
+      video.src = m.file_url;
+      video.controls = true;
+      video.style.maxWidth = "240px";
+      video.style.marginTop = "6px";
+      body.appendChild(video);
+    }
+    // 📄 DOCUMENTO
+    else{
+      const link = document.createElement('a');
+      link.href = m.file_url;
+      link.textContent = "📄 Descargar archivo";
+      link.target = "_blank";
+      link.style.display = "block";
+      link.style.marginTop = "6px";
+      body.appendChild(link);
+    }
+  }
+  // ✅ TEXTO NORMAL
+  else{
+    body.textContent = m.text || '';
+  }
 
   el.appendChild(meta);
   el.appendChild(body);
@@ -688,9 +727,53 @@ function render(m){
 }
 
 
+
     function scrollBottom(){ const box=document.getElementById('messages'); setTimeout(()=>{ box.scrollTop = box.scrollHeight; },50); }
 
-    async function sendMessage(){ const input = document.getElementById('message-input'); const text = input.value.trim(); if(!text) return; input.value=''; if(current.type==='global'){ await api('/messages','POST',{ text }); } else if(current.type==='private'){ await api('/private/send','POST',{ to: current.withId, text }); } else if(current.type==='group'){ await api('/groups/send','POST',{ group_id: current.id, text }); } }
+    async function sendMessage(){
+  const input = document.getElementById('message-input');
+  const fileInput = document.getElementById('file-input');
+  const text = input.value.trim();
+  const file = fileInput.files[0];
+
+  // ✅ SI SE ENVÍA ARCHIVO
+  if(file){
+    const formData = new FormData();
+    formData.append("file", file);
+
+    if(current.type === 'private'){
+      formData.append("to", current.withId);
+    }
+    if(current.type === 'group'){
+      formData.append("group_id", current.id);
+    }
+
+    await fetch("/api/upload", {
+      method: "POST",
+      body: formData
+    });
+
+    fileInput.value = "";
+    return;
+  }
+
+  // ✅ MENSAJE NORMAL
+  if(!text) return;
+  input.value = '';
+
+  if(current.type==='global'){
+    await api('/messages','POST',{ text });
+  } 
+  else if(current.type==='private'){
+    await api('/private/send','POST',{ to: current.withId, text });
+  } 
+  else if(current.type==='group'){
+    await api('/groups/send','POST',{ group_id: current.id, text });
+  }
+}
+document.getElementById("file-btn").onclick = () => {
+  document.getElementById("file-input").click();
+};
 
     socket.on('message',(m)=>{ if(current.type==='global'){ render(m); scrollBottom(); } });
     socket.on('private_message', (m) => {
@@ -713,6 +796,19 @@ function render(m){
 
 
     socket.on('group_message',(m)=>{ if(current.type==='group' && m.group_id===current.id){ render(m); scrollBottom(); } else { loadGroups(); } });
+    socket.on('file_message', (m)=>{
+  if(current.type === 'private' && 
+    (m.from_id === current.withId || m.to_id === current.withId)){
+    render(m);
+    scrollBottom();
+  }
+
+  if(current.type === 'group' && m.group_id === current.id){
+    render(m);
+    scrollBottom();
+  }
+});
+
     socket.on('presence_update',(p)=>{ loadContacts(); updateUserCount(); });
     socket.on('friend_request',(d)=>{ // simple notification
       if(me && d.toId === me.id){ alert('Nueva solicitud de amistad de ' + d.fromName); }

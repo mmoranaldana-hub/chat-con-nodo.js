@@ -1,4 +1,6 @@
-// server.js - fixed: robust private rooms + reliable group creation response
+// server.js - chat con subida de archivos (images/videos/docs) + salas privadas robustas
+const multer = require("multer");
+const fs = require("fs");
 const express = require("express");
 const path = require("path");
 const http = require("http");
@@ -7,7 +9,6 @@ const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
-const fs = require("fs");
 const sqlite3 = require("sqlite3").verbose();
 
 const app = express();
@@ -102,17 +103,49 @@ const dbAll = (sql, params = []) =>
       );
     `);
 
+    // --- Ensure file_url columns exist in private_messages & group_messages
+    // Use pragma to check if column exists before ALTER (SQLite will error otherwise)
+    const privCols = await dbAll(`PRAGMA table_info(private_messages)`);
+    const privHasFile = privCols.some(c => c.name === 'file_url');
+    if (!privHasFile) {
+      try { await dbRun(`ALTER TABLE private_messages ADD COLUMN file_url TEXT`); } catch(e){ console.warn("Could not add private_messages.file_url:", e.message); }
+    }
+
+    const grpCols = await dbAll(`PRAGMA table_info(group_messages)`);
+    const grpHasFile = grpCols.some(c => c.name === 'file_url');
+    if (!grpHasFile) {
+      try { await dbRun(`ALTER TABLE group_messages ADD COLUMN file_url TEXT`); } catch(e){ console.warn("Could not add group_messages.file_url:", e.message); }
+    }
+
     console.log("SQLite DB inicializada correctamente.");
   } catch (e) {
     console.error("Error inicializando DB:", e);
   }
 })();
 
+// ---------- middlewares ----------
 app.use(express.static(path.join(__dirname, "public")));
-app.use(bodyParser.json({ limit: "5mb" }));
+app.use(bodyParser.json({ limit: "50mb" })); // ampliar para subir files en base64 si hace falta
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.set("trust proxy", 1);
+
+// --- ensure uploads folder exists and serve it
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use("/uploads", express.static(UPLOAD_DIR));
+
+// multer config
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = Date.now() + "-" + file.originalname.replace(/\s+/g,'_');
+    cb(null, uniqueName);
+  }
+});
+const upload = multer({ storage });
 
 app.use(session({
   secret: process.env.SESSION_SECRET || "secret123",
@@ -120,8 +153,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: true,
-    sameSite: "none",
+    // secure: true, // si usas https en producción habilita
+    sameSite: "lax",
     maxAge: 1000 * 60 * 60 * 24 * 7
   }
 }));
@@ -178,7 +211,6 @@ app.post("/api/register", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
-
 
 app.post("/api/login", async (req, res) => {
   try{
@@ -265,8 +297,6 @@ app.post("/api/private/send", requireAuth, async (req, res) => {
     io.to(`user-${to}`).emit("private_message", msg);
     io.to(`user-${me.id}`).emit("private_message", msg);
 
-   
-
     console.log(`PM sent from ${me.id} to ${to} -> emitted to user-${to} and pm rooms`);
     res.json(msg);
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
@@ -277,9 +307,51 @@ app.get("/api/private/:withId", requireAuth, async (req, res) => {
     const withId = parseInt(req.params.withId);
     const me = await getUserBySession(req);
     const rows = await dbAll("SELECT * FROM private_messages WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?) ORDER BY id ASC", [me.id, withId, withId, me.id]);
-    const out = rows.map(r=>({ id: r.id, from: r.from_id, to: r.to_id, text: r.text, created_at: r.created_at, read_by: JSON.parse(r.read_by||"[]") }));
+    const out = rows.map(r=>({ id: r.id, from: r.from_id, to: r.to_id, text: r.text, file_url: r.file_url, created_at: r.created_at, read_by: JSON.parse(r.read_by||"[]") }));
     res.json(out);
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
+});
+
+// ========== NEW: upload endpoint (files) ==========
+app.post("/api/upload", requireAuth, upload.single("file"), async (req, res) => {
+  try {
+    const me = await getUserBySession(req);
+    if (!me) return res.status(401).json({ error: "Unauthorized" });
+
+    const file = req.file;
+    if(!file) return res.status(400).json({ error: "No file" });
+
+    const fileUrl = `/uploads/${file.filename}`;
+    const created = new Date().toISOString();
+
+    // private file
+    if(req.body.to){
+      const to = req.body.to;
+      const info = await dbRun("INSERT INTO private_messages (from_id, to_id, text, file_url, created_at, read_by) VALUES (?,?,?,?,?,?)", [me.id, to, "", fileUrl, created, JSON.stringify([me.id])]);
+      const msg = { id: info.lastID, from_id: me.id, to_id: to, file_url: fileUrl, created_at: created, read_by: [me.id] };
+
+      io.to(`user-${to}`).emit("private_message", msg);
+      io.to(`user-${me.id}`).emit("private_message", msg);
+      return res.json({ ok: true, msg });
+    }
+
+    // group file
+    if(req.body.group_id){
+      const groupId = req.body.group_id;
+      const info = await dbRun("INSERT INTO group_messages (group_id, from_id, text, file_url, created_at, read_by) VALUES (?,?,?,?,?,?)", [groupId, me.id, "", fileUrl, created, JSON.stringify([me.id])]);
+      const msg = { id: info.lastID, group_id: groupId, from_id: me.id, file_url: fileUrl, created_at: created, read_by: [me.id] };
+
+      io.to(`group-${groupId}`).emit("group_message", msg);
+      return res.json({ ok: true, msg });
+    }
+
+    // if neither to nor group_id, ignore for now
+    res.json({ ok: true, fileUrl });
+
+  } catch (err) {
+    console.error("UPLOAD ERROR:", err);
+    res.status(500).json({ error: "Upload failed" });
+  }
 });
 
 // GROUPS - create, add-member, list, send, messages
@@ -295,10 +367,8 @@ app.post("/api/groups/create", requireAuth, async (req, res) => {
         await dbRun("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?,?)", [groupId, m]);
       }
     }
-    // Build full created group to return
     const membersList = await dbAll("SELECT u.id,u.username FROM users u JOIN group_members gm ON gm.user_id=u.id WHERE gm.group_id=?", [groupId]);
     const group = { id: groupId, name, members: membersList, created_by: me.id };
-    // respond with full group object (so frontend can add it)
     res.json(group);
     io.emit("group_created", group);
     console.log("Group created:", group);
@@ -336,7 +406,7 @@ app.get("/api/groups/messages/:id", requireAuth, async (req, res) => {
   try{
     const group_id = parseInt(req.params.id);
     const rows = await dbAll("SELECT * FROM group_messages WHERE group_id = ? ORDER BY id ASC", [group_id]);
-    const out = rows.map(r=>({ id: r.id, group_id: r.group_id, from: r.from_id, text: r.text, created_at: r.created_at, read_by: JSON.parse(r.read_by||"[]") }));
+    const out = rows.map(r=>({ id: r.id, group_id: r.group_id, from: r.from_id, text: r.text, file_url: r.file_url, created_at: r.created_at, read_by: JSON.parse(r.read_by||"[]") }));
     res.json(out);
   }catch(e){ console.error(e); res.status(500).json({ error:"Server error" }); }
 });
@@ -374,6 +444,14 @@ io.on("connection", (socket) => {
     console.log(`socket ${socket.id} joined user-${userId} (online)`);
   });
 
+  // join_private for robust PM delivery (frontend should emit this when opening a PM)
+  socket.on("join_private", ({ me, other }) => {
+    try {
+      socket.join(`pm-${me}-${other}`);
+      socket.join(`pm-${other}-${me}`);
+      console.log(`socket ${socket.id} joined pm-${me}-${other} and pm-${other}-${me}`);
+    } catch(err) { console.error("join_private error", err); }
+  });
 
   socket.on("join_group", (groupId) => {
     socket.join(`group-${groupId}`);
