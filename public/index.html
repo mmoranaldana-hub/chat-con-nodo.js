@@ -661,8 +661,32 @@ document.getElementById('reg-btn').addEventListener('click', async ()=>{
     async function openPrivate(id,name){ current = { type:'private', withId:id }; document.getElementById('chat-name').textContent = name; document.getElementById('chat-sub').textContent = 'Chat privado'; document.getElementById('messages').innerHTML=''; const msgs = await api('/private/'+id); if(Array.isArray(msgs)) msgs.forEach(render); scrollBottom();  }
 
     async function openGroup(id,name){ current = { type:'group', id, name }; document.getElementById('chat-name').textContent = name; document.getElementById('chat-sub').textContent='Grupo'; document.getElementById('messages').innerHTML=''; const msgs = await api('/groups/messages/'+id); if(Array.isArray(msgs)) msgs.forEach(render); scrollBottom(); socket.emit('join_group', id); }
+function render(m){
+  const box = document.getElementById('messages');
+  const el = document.createElement('div');
 
-    function render(m){ const box = document.getElementById('messages'); const el = document.createElement('div'); const isMe = me && ((m.user_id && m.user_id===me.id) || (m.from && m.from===me.id)); el.className = 'msg ' + (isMe? 'me':'other'); const meta = document.createElement('div'); meta.className='meta'; meta.textContent = (m.username || m.fromName || ('User '+(m.from||m.user_id||''))) + ' • ' + new Date(m.created_at).toLocaleString(); const body = document.createElement('div'); body.textContent = m.text || ''; el.appendChild(meta); el.appendChild(body); box.appendChild(el); }
+  const isMe =
+    m.user_id === me.id ||
+    m.from === me.id ||
+    m.from_id === me.id;
+
+  el.className = 'msg ' + (isMe ? 'me' : 'other');
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent =
+    (m.username || m.fromName || 'Usuario') +
+    ' • ' +
+    new Date(m.created_at).toLocaleString();
+
+  const body = document.createElement('div');
+  body.textContent = m.text || '';
+
+  el.appendChild(meta);
+  el.appendChild(body);
+  box.appendChild(el);
+}
+
 
     function scrollBottom(){ const box=document.getElementById('messages'); setTimeout(()=>{ box.scrollTop = box.scrollHeight; },50); }
 
@@ -670,19 +694,23 @@ document.getElementById('reg-btn').addEventListener('click', async ()=>{
 
     socket.on('message',(m)=>{ if(current.type==='global'){ render(m); scrollBottom(); } });
     socket.on('private_message', (m) => {
+  if (current.type !== 'private') return;
+
+  const otherId = current.withId;
+
   if (
-    current.type === 'private' &&
-    (
-      m.from_id === current.withId ||
-      m.to_id === current.withId
-    )
+    (m.from_id === me.id && m.to_id === otherId) ||
+    (m.from_id === otherId && m.to_id === me.id)
   ) {
-    render(m);
+    render({
+      ...m,
+      user_id: m.from_id,
+      username: m.from_id === me.id ? me.username : current.username
+    });
     scrollBottom();
-  } else {
-    loadContacts();
   }
 });
+
 
     socket.on('group_message',(m)=>{ if(current.type==='group' && m.group_id===current.id){ render(m); scrollBottom(); } else { loadGroups(); } });
     socket.on('presence_update',(p)=>{ loadContacts(); updateUserCount(); });
