@@ -109,10 +109,21 @@
 }
 
 .msg .meta {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 6px;
+  font-size: 11px;
+  margin-bottom: 4px;
+  opacity: 0.85;
 }
+
+/* ✅ Nombre y hora PROPIOS (sobre azul fuerte) */
+.msg.me .meta{
+  color: rgba(255,255,255,0.85);
+}
+
+/* ✅ Nombre y hora de OTROS (sobre azul claro) */
+.msg.other .meta{
+  color: #1e293b;
+}
+
 
 /* Mensajes */
 .msg.me {
@@ -145,6 +156,14 @@ body.dark .msg.other {
 body.dark .msg {
   color: var(--dark-text);
 }
+body.dark .msg.me .meta{
+  color: rgba(255,255,255,0.9);
+}
+
+body.dark .msg.other .meta{
+  color: #cbd5f5;
+}
+
 
 
 
