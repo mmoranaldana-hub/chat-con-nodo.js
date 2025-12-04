@@ -21,6 +21,15 @@
   --dark-bg: #0f1720; 
   --dark-panel:#111827; 
   --dark-text:#e6eef3;
+
+    --chat-bg: #f0f2f5;
+  --chat-bg-dark: #0b1220;
+
+  --msg-me-dark: #2563eb;      /* Azul fuerte oscuro */
+  --msg-other-dark: #1f2937;  /* Gris oscuro mensajes ajenos */
+
+  --header-dark: #1e293b;     /* Header oscuro visible */
+
 }
 
 
@@ -125,15 +134,18 @@ body.dark .messages {
 
 body.dark .msg.me {
   background: var(--msg-me-dark);
+  color: white;
 }
 
 body.dark .msg.other {
   background: var(--msg-other-dark);
+  color: #e5e7eb;
 }
 
 body.dark .msg {
   color: var(--dark-text);
 }
+
 
 
     .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,0.03);word-break:break-word}
