@@ -284,7 +284,33 @@ body.dark .msg {
       </div>
       <div id="register-form" style="display:none;margin-top:10px">
         <input id="reg-username" placeholder="Usuario" style="width:100%;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid #ddd" />
-        <input id="reg-password" type="password" placeholder="Contraseña" style="width:100%;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid #ddd" />
+        <div style="position:relative">
+  <input id="reg-password" type="password" placeholder="Contraseña"
+    style="width:100%;padding:10px;padding-right:40px;margin-bottom:6px;border-radius:8px;border:1px solid #ddd" />
+
+  <button id="toggle-pass" type="button"
+    style="position:absolute;right:8px;top:8px;background:none;border:none;cursor:pointer;font-size:18px">
+    👁️
+  </button>
+</div>
+
+<!-- Reglas de contraseña -->
+<div id="password-rules" style="font-size:13px;margin-bottom:10px;color:#555">
+  <div id="rule-length">● Mínimo 8 caracteres</div>
+  <div id="rule-upper">● Una mayúscula (A-Z)</div>
+  <div id="rule-lower">● Una minúscula (a-z)</div>
+  <div id="rule-number">● Un número (0-9)</div>
+  <div id="rule-symbol">● Un carácter especial (!@#$)</div>
+</div>
+
+<!-- Medidor de fuerza -->
+<div style="margin-bottom:12px">
+  <div style="height:6px;width:100%;background:#ddd;border-radius:10px;overflow:hidden">
+    <div id="strength-bar" style="height:100%;width:0%;background:red;transition:.3s"></div>
+  </div>
+  <small id="strength-text" style="font-size:12px;color:#555">Fuerza: Débil</small>
+</div>
+
         <div style="display:flex;gap:8px"><button class="btn" id="reg-btn">Crear cuenta</button><button id="show-login" style="padding:9px 14px">Iniciar sesión</button></div>
       </div>
       <div id="auth-msg" style="color:#b00;margin-top:8px"></div>
@@ -383,15 +409,104 @@ body.dark .msg {
       if(r.error){ document.getElementById('auth-msg').textContent = r.error; return; }
       await initAfterAuth();
     });
+    // ===============================
+// CONTRASEÑA SEGURA + MEDIDOR
+// ===============================
+const regPassword = document.getElementById("reg-password");
+const togglePass = document.getElementById("toggle-pass");
 
-    document.getElementById('reg-btn').addEventListener('click', async ()=>{
-      const u = document.getElementById('reg-username').value.trim(); const p = document.getElementById('reg-password').value.trim();
-      if(!u||!p){ document.getElementById('auth-msg').textContent='Completa usuario y contraseña'; return; }
-      const r = await api('/register','POST',{ username:u, password:p });
-      if(!r){ document.getElementById('auth-msg').textContent='Error servidor'; return; }
-      if(r.error){ document.getElementById('auth-msg').textContent = r.error; return; }
-      await initAfterAuth();
-    });
+const rules = {
+  length: document.getElementById("rule-length"),
+  upper: document.getElementById("rule-upper"),
+  lower: document.getElementById("rule-lower"),
+  number: document.getElementById("rule-number"),
+  symbol: document.getElementById("rule-symbol")
+};
+
+const strengthBar = document.getElementById("strength-bar");
+const strengthText = document.getElementById("strength-text");
+
+// 👁️ Mostrar / ocultar contraseña
+togglePass.addEventListener("click", () => {
+  if (regPassword.type === "password") {
+    regPassword.type = "text";
+    togglePass.textContent = "🙈";
+  } else {
+    regPassword.type = "password";
+    togglePass.textContent = "👁️";
+  }
+});
+
+// Validaciones en tiempo real
+regPassword.addEventListener("input", () => {
+  const value = regPassword.value;
+
+  const hasLength = value.length >= 8;
+  const hasUpper = /[A-Z]/.test(value);
+  const hasLower = /[a-z]/.test(value);
+  const hasNumber = /\d/.test(value);
+  const hasSymbol = /[^A-Za-z0-9]/.test(value);
+
+  rules.length.style.color = hasLength ? "green" : "#555";
+  rules.upper.style.color = hasUpper ? "green" : "#555";
+  rules.lower.style.color = hasLower ? "green" : "#555";
+  rules.number.style.color = hasNumber ? "green" : "#555";
+  rules.symbol.style.color = hasSymbol ? "green" : "#555";
+
+  let strength = 0;
+  if (hasLength) strength++;
+  if (hasUpper) strength++;
+  if (hasLower) strength++;
+  if (hasNumber) strength++;
+  if (hasSymbol) strength++;
+
+  if (strength <= 2) {
+    strengthBar.style.width = "30%";
+    strengthBar.style.background = "red";
+    strengthText.textContent = "Fuerza: Débil";
+  } else if (strength <= 4) {
+    strengthBar.style.width = "70%";
+    strengthBar.style.background = "orange";
+    strengthText.textContent = "Fuerza: Media";
+  } else {
+    strengthBar.style.width = "100%";
+    strengthBar.style.background = "green";
+    strengthText.textContent = "Fuerza: Fuerte";
+  }
+});
+
+document.getElementById('reg-btn').addEventListener('click', async ()=>{
+  const u = document.getElementById('reg-username').value.trim();
+  const p = document.getElementById('reg-password').value.trim();
+  const msg = document.getElementById('auth-msg');
+
+  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+
+  if(!u || !p){
+    msg.textContent = 'Completa usuario y contraseña';
+    return;
+  }
+
+  if(!regex.test(p)){
+    msg.textContent = 'La contraseña no cumple con los requisitos.';
+    return;
+  }
+
+  const r = await api('/register','POST',{ username:u, password:p });
+
+  if(!r){
+    msg.textContent='Error servidor';
+    return;
+  }
+
+  if(r.error){
+    msg.textContent = r.error;
+    return;
+  }
+
+  await initAfterAuth();
+});
+
 
     async function checkSession(){ const r = await api('/me'); if(r && r.user){ await initAfterAuth(); } else { document.getElementById('auth').style.display='block'; document.getElementById('app').style.display='none'; } }
 

@@ -138,20 +138,47 @@ async function getUserBySession(req){
 
 // --- AUTH endpoints (unchanged) ---
 app.post("/api/register", async (req, res) => {
-  try{
+  try {
     const { username, password } = req.body;
-    if(!username || !password) return res.status(400).json({ error: "Missing fields" });
-    const exists = await dbGet("SELECT id FROM users WHERE username = ?", [username]);
-    if(exists) return res.status(400).json({ error: "Username exists" });
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+
+    // ✅ VALIDACIÓN DE CONTRASEÑA SEGURA EN EL SERVIDOR
+    const secureRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+
+    if (!secureRegex.test(password)) {
+      return res.status(400).json({
+        error: "La contraseña no cumple los requisitos de seguridad"
+      });
+    }
+
+    const exists = await dbGet(
+      "SELECT id FROM users WHERE username = ?",
+      [username]
+    );
+    if (exists) {
+      return res.status(400).json({ error: "Username exists" });
+    }
+
     const hash = await bcrypt.hash(password, 10);
-    const info = await dbRun("INSERT INTO users (username, password_hash) VALUES (?,?)", [username, hash]);
+
+    const info = await dbRun(
+      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+      [username, hash]
+    );
+
     req.session.user = { id: info.lastID, username };
+
     res.json(req.session.user);
-  }catch(e){
+
+  } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 app.post("/api/login", async (req, res) => {
   try{
