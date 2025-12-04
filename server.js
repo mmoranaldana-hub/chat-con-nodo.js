@@ -265,8 +265,7 @@ app.post("/api/private/send", requireAuth, async (req, res) => {
     io.to(`user-${to}`).emit("private_message", msg);
     io.to(`user-${me.id}`).emit("private_message", msg);
 
-    io.to(`pm-${me.id}-${to}`).emit("private_message", msg);
-    io.to(`pm-${to}-${me.id}`).emit("private_message", msg);
+   
 
     console.log(`PM sent from ${me.id} to ${to} -> emitted to user-${to} and pm rooms`);
     res.json(msg);
@@ -375,13 +374,6 @@ io.on("connection", (socket) => {
     console.log(`socket ${socket.id} joined user-${userId} (online)`);
   });
 
-  socket.on("join_private", ({ me, other }) => {
-    try {
-      socket.join(`pm-${me}-${other}`);
-      socket.join(`pm-${other}-${me}`);
-      console.log(`socket ${socket.id} joined pm-${me}-${other} and pm-${other}-${me}`);
-    } catch(err) { console.error("join_private error", err); }
-  });
 
   socket.on("join_group", (groupId) => {
     socket.join(`group-${groupId}`);

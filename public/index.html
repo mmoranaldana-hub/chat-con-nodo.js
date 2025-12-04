@@ -658,7 +658,7 @@ document.getElementById('reg-btn').addEventListener('click', async ()=>{
 
     async function openGlobal(){ current = { type:'global' }; document.getElementById('chat-name').textContent='Global'; document.getElementById('chat-sub').textContent='Chat público'; document.getElementById('messages').innerHTML=''; const msgs = await api('/messages'); if(Array.isArray(msgs)) msgs.forEach(render); scrollBottom(); socket.emit('join_group',0); }
 
-    async function openPrivate(id,name){ current = { type:'private', withId:id }; document.getElementById('chat-name').textContent = name; document.getElementById('chat-sub').textContent = 'Chat privado'; document.getElementById('messages').innerHTML=''; const msgs = await api('/private/'+id); if(Array.isArray(msgs)) msgs.forEach(render); scrollBottom(); socket.emit('join_private',{ me: me.id, other: id }); }
+    async function openPrivate(id,name){ current = { type:'private', withId:id }; document.getElementById('chat-name').textContent = name; document.getElementById('chat-sub').textContent = 'Chat privado'; document.getElementById('messages').innerHTML=''; const msgs = await api('/private/'+id); if(Array.isArray(msgs)) msgs.forEach(render); scrollBottom();  }
 
     async function openGroup(id,name){ current = { type:'group', id, name }; document.getElementById('chat-name').textContent = name; document.getElementById('chat-sub').textContent='Grupo'; document.getElementById('messages').innerHTML=''; const msgs = await api('/groups/messages/'+id); if(Array.isArray(msgs)) msgs.forEach(render); scrollBottom(); socket.emit('join_group', id); }
 
