@@ -164,10 +164,7 @@ body.dark .msg.other .meta{
   color: #cbd5f5;
 }
 
-
-
-
-    .msg{max-width:72%;padding:10px 12px;border-radius:8px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,0.03);word-break:break-word}
+    
     .msg .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
 
     .composer{display:flex;gap:10px;padding:12px;border-top:1px solid #f0f0f0;align-items:center}
@@ -672,7 +669,21 @@ document.getElementById('reg-btn').addEventListener('click', async ()=>{
     async function sendMessage(){ const input = document.getElementById('message-input'); const text = input.value.trim(); if(!text) return; input.value=''; if(current.type==='global'){ await api('/messages','POST',{ text }); } else if(current.type==='private'){ await api('/private/send','POST',{ to: current.withId, text }); } else if(current.type==='group'){ await api('/groups/send','POST',{ group_id: current.id, text }); } }
 
     socket.on('message',(m)=>{ if(current.type==='global'){ render(m); scrollBottom(); } });
-    socket.on('private_message',(m)=>{ if(current.type==='private' && (m.from===current.withId || m.to===current.withId)){ render(m); scrollBottom(); } else { loadContacts(); } });
+    socket.on('private_message', (m) => {
+  if (
+    current.type === 'private' &&
+    (
+      m.from_id === current.withId ||
+      m.to_id === current.withId
+    )
+  ) {
+    render(m);
+    scrollBottom();
+  } else {
+    loadContacts();
+  }
+});
+
     socket.on('group_message',(m)=>{ if(current.type==='group' && m.group_id===current.id){ render(m); scrollBottom(); } else { loadGroups(); } });
     socket.on('presence_update',(p)=>{ loadContacts(); updateUserCount(); });
     socket.on('friend_request',(d)=>{ // simple notification
@@ -681,7 +692,7 @@ document.getElementById('reg-btn').addEventListener('click', async ()=>{
 
     async function updateUserCount(){ const cs = await api('/contacts'); const online = (cs||[]).filter(x=>x.online).length; document.getElementById('user-count').textContent = online + ' online'; }
 
-    (async ()=>{ await checkSession(); })();
+    
     (async ()=>{ await checkSession(); })();
 
 /* ============================
